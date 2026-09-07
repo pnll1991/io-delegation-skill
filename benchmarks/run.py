@@ -104,9 +104,25 @@ def score(text, expected):
     except (ValueError, TypeError):
         return False
     # Exact JSON types as well as values: True must not equal integer 1.
-    return compact(value) == compact(expected) or (
-        isinstance(value, dict) and set(value) == set(expected)
-        and all(type(value[k]) is type(v) and value[k] == v for k, v in expected.items()))
+    return (isinstance(value, dict) and set(value) == set(expected)
+            and all(type(value[k]) is type(v) and value[k] == v for k, v in expected.items()))
+
+
+def constants_covered(summary, expected):
+    """Check literal assignments without executing evidence or misreading 6_000."""
+    values = {}
+    for finding in summary.get('findings', []):
+        try:
+            nodes = ast.parse(finding['evidence'].strip()).body
+            for node in nodes:
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id == finding['symbol']:
+                            values[target.id] = ast.literal_eval(node.value)
+        except (SyntaxError, ValueError, TypeError, KeyError):
+            continue
+    return all(name in values and type(values[name]) is type(value)
+               and values[name] == value for name, value in expected.items())
 
 
 def reduction(baseline, candidate):
@@ -140,6 +156,7 @@ class LocalModel:
         from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
         self.torch, self.out = torch, out
         self.records = []
+        self.call_lock = threading.Lock()
         torch.set_num_threads(min(4, os.cpu_count() or 1))
         torch.set_num_interop_threads(1)
         config = AutoConfig.from_pretrained(name, revision=revision, trust_remote_code=False)
@@ -152,6 +169,11 @@ class LocalModel:
                      'threads': torch.get_num_threads(), 'decoding': 'greedy', 'cross_call_cache': False}
 
     def call(self, label, msgs, maximum=96):
+        # A timed-out HTTP client must not race a still-running worker generation.
+        with self.call_lock:
+            return self._call(label, msgs, maximum)
+
+    def _call(self, label, msgs, maximum=96):
         from transformers import GenerationConfig
         tensor = self.tokenizer.apply_chat_template(msgs, add_generation_prompt=True, return_tensors='pt')
         if tensor.shape[-1] + maximum > self.model.config.max_position_embeddings:
@@ -220,9 +242,8 @@ def delegated(case, model, trial):
         summary = json.loads(lines[-1]) if code == 0 and lines else None
         contract = code == 0 and summary is not None and summary.get('status') == 'ok'
         if contract:
-            actual = {f['symbol']: f['evidence'] for f in summary['findings']}
-            # Literal validation alone is insufficient: check all requested facts are present.
-            contract = all(name in actual and str(value) in actual[name] for name, value in case['expected'].items())
+            # Literal validation alone is insufficient: check all requested assignments.
+            contract = constants_covered(summary, case['expected'])
         main_arm = 'forced_worker' if contract else 'skill_cold'
         main = model.call(f'limits-forced-main-{trial}', messages(case, main_arm, summary if contract else None))
         calls = model.records[start_index:]
@@ -242,7 +263,7 @@ def live(args, out):
     model = LocalModel(args.model, args.revision, out)
     warmup = model.call('warmup-excluded', [{'role': 'user', 'content': 'Reply with OK.'}], 8)
     rows = []
-    # Counterbalanced predeclared order; no best-run selection and no repair retries.
+    # Seeded predeclared order; no best-run selection and no repair retries.
     for trial in range(1, args.repeat + 1):
         for case in [c for c in cases() if c['live']]:
             order = ARMS[:]

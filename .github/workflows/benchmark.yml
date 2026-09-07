@@ -2,12 +2,6 @@ name: Controlled token benchmark
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - benchmarks/run.py
-      - benchmarks/requirements.txt
-      - .github/workflows/benchmark.yml
 
 permissions:
   contents: read

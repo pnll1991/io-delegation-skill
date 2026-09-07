@@ -109,7 +109,8 @@ skills/io-delegation/
   assets/                  unapproved config examples and benchmark template
   LICENSE                  travels with the installed skill
 install.py                 project/global installer
-tests/                     75 offline infrastructure and contract tests
+tests/                     84 offline infrastructure and contract tests
+benchmarks/                reproducible census, model pilot and raw results
 docs/                      installation, testing and maintainer guides
 .github/                   CI, issue templates and pull-request checklist
 ```
@@ -120,9 +121,43 @@ docs/                      installation, testing and maintainer guides
 python -m unittest discover -s tests -v
 ```
 
-The pre-publication Linux run passed **75 tests**. GitHub Actions runs the suite on Linux, Windows and macOS with Python 3.10 and 3.13; the badge links to actual run status. [Testing scope](docs/TESTING.md) separates infrastructure validation from real-agent behavior and benchmarks.
+The suite contains **84 offline tests**: 75 core tests and 9 benchmark-contract tests. GitHub Actions runs the suite on Linux, Windows and macOS with Python 3.10 and 3.13; the badge links to actual run status. [Testing scope](docs/TESTING.md) separates infrastructure validation from real-agent behavior and benchmarks.
 
-**No measured savings claim.** A smaller main-agent context is not the same as lower total cost. Count worker calls, latency, verification and rework. Use the [validation guide](skills/io-delegation/references/VALIDATION.md) before publishing performance numbers.
+## Benchmark
+
+### Real local-model pilot · 2026-09-07
+
+**Measured fewer tokens on large-file lookups, but not a quality-passing end-to-end win.** We ran `Qwen/Qwen2.5-Coder-1.5B-Instruct` on CPU against real repository files, comparing whole-file reading, focused reading without the skill, and focused reading with the **entire skill loaded**. This is a controlled prompt replay, not an autonomous Claude Code, Codex or Cursor benchmark.
+
+Observed **input + output tokens**, including responses rejected by the quality gate:
+
+| Case | Whole file | Focused, no skill | Focused + complete skill | Reduction vs whole file |
+| --- | ---: | ---: | ---: | ---: |
+| Runner constants | 6,902 | 240 | 2,132 | 69.11% |
+| Configuration defaults | 6,908 | 791 | 2,697 | 60.96% |
+| Small installer — negative control | 770 | 653 | 2,545 | -230.52% |
+
+**Quality:** the predeclared gate required bare JSON. Only **1 of 9** main-arm responses passed: the focused/no-skill configuration lookup. Eight responses added Markdown fences, including all three skill responses. A separate **post-hoc** check found the correct field values in all nine after removing those fences; this does **not** turn the original failures into passes. No repair calls or their costs were measured.
+
+**Delegation control:** the real `bulk-read` runner called the same model, which returned `insufficient_context` with no findings. The harness fell back to targeted reading. Worker + fallback consumed **9,356 tokens**, versus **6,902** for whole-file reading: **35.55% more**. The main request alone was smaller; total consumption was not. The fallback also failed the strict output-format gate.
+
+**Interpretation:** targeted reading can reduce context substantially. A cold-loaded skill can be counterproductive on small tasks, and a strong focused/no-skill baseline is cheaper still. This pilot does not demonstrate automatic skill selection, successful code changes, provider billing savings, or a fixed percentage of savings for supported agents.
+
+[Methodology, quality failures and reproduction](benchmarks/README.md) · [Raw model results](benchmarks/results/2026-09-07-live.json) · [Completed model run](https://github.com/pnll1991/io-delegation-skill/actions/runs/34154914478)
+
+### Independent token census
+
+A separate five-case census used `tiktoken` 0.11.0 on serialized message JSON. The three large-file cases showed **64.03–72.00%** fewer `o200k_base` tokens with the full skill included; small/already-focused negative controls increased token counts. These are BPE serialization counts, **not** the Qwen inference counts above, Claude tokenization, or provider invoices.
+
+[All census results, including both tokenizers and negative controls](benchmarks/results/2026-09-07-census.json) · [Completed census run](https://github.com/pnll1991/io-delegation-skill/actions/runs/34155367336)
+
+```bash
+# Census only; no model download or inference
+python -m pip install tiktoken==0.11.0
+python benchmarks/run.py --output benchmark-output
+```
+
+The model pilot is an optional, manually triggered workflow; the lightweight census runs on relevant changes. Benchmark dependencies are separate from the installed skill. Count principal, worker, validation and rework using the [validation guide](skills/io-delegation/references/VALIDATION.md).
 
 ## Origin and contribution
 

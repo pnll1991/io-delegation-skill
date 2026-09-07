@@ -54,9 +54,45 @@ python -m unittest discover -s tests -v
 
 `bulk-read` devuelve hechos acotados con evidencia literal y cobertura declarada. `code-write` guarda un archivo nuevo en `.io-delegation/candidates/`; nunca lo aplica ni ejecuta automáticamente. El transporte real se configura siguiendo [ADAPTERS.md](skills/io-delegation/references/ADAPTERS.md). No se activa ningún proveedor por defecto.
 
+## Benchmark
+
+### Prueba real con un modelo local · 7 de septiembre de 2026
+
+**Se midieron menos tokens en lecturas grandes, pero no una mejora de extremo a extremo que aprobara el criterio de calidad.** Ejecutamos `Qwen/Qwen2.5-Coder-1.5B-Instruct` en CPU con archivos reales del repo: lectura completa, lectura focalizada sin skill y lectura focalizada con **toda la skill cargada**. Es un ensayo controlado, no una sesión autónoma de Claude Code, Codex o Cursor.
+
+Tokens observados de **entrada + salida**, incluidas las respuestas rechazadas por el control de calidad:
+
+| Caso | Archivo completo | Focalizado, sin skill | Focalizado + skill completa | Reducción frente al archivo completo |
+| --- | ---: | ---: | ---: | ---: |
+| Constantes del ejecutor | 6.902 | 240 | 2.132 | 69,11% |
+| Valores de configuración | 6.908 | 791 | 2.697 | 60,96% |
+| Instalador pequeño — control negativo | 770 | 653 | 2.545 | -230,52% |
+
+**Calidad:** el criterio definido antes de ejecutar exigía JSON sin envoltorios. Solo **1 de 9** respuestas principales pasó: la consulta de configuración focalizada sin skill. Ocho agregaron bloques Markdown, incluidas las tres respuestas con skill. Una revisión adicional **posterior al ensayo** encontró los valores correctos en las nueve al quitar esos bloques; eso **no convierte los fallos originales en aprobados**. No se midieron llamadas de corrección ni su costo.
+
+**Control de delegación:** el ejecutor real `bulk-read` consultó al mismo modelo, que devolvió `insufficient_context` sin hallazgos. El ensayo volvió a la lectura dirigida. Auxiliar + respuesta alternativa consumieron **9.356 tokens**, frente a **6.902** de la lectura completa: **35,55% más**. El contexto del principal bajó, pero el consumo total no. La respuesta alternativa también falló el formato estricto.
+
+**Conclusión:** leer solo lo necesario reduce mucho el contexto; cargar la skill para una tarea pequeña puede empeorar el consumo. Una lectura ya focalizada sin skill sigue siendo más económica. El ensayo no demuestra selección automática, cambios de código correctos, ahorro de facturación ni un porcentaje fijo para los agentes compatibles.
+
+[Metodología, fallos y reproducción](benchmarks/README.md) · [Resultados del modelo](benchmarks/results/2026-09-07-live.json) · [Ejecución terminada](https://github.com/pnll1991/io-delegation-skill/actions/runs/34154914478)
+
+### Conteo independiente de tokens
+
+Otro ensayo de cinco casos contó los mensajes serializados con `tiktoken` 0.11.0. Los tres casos grandes redujeron **64,03–72,00%** los tokens `o200k_base`, incluyendo la skill completa. Los controles pequeños y ya focalizados aumentaron el consumo. Son conteos BPE de esa serialización, **no** los tokens de inferencia Qwen de la tabla anterior ni una factura o el tokenizador de Claude.
+
+[Datos de ambos tokenizadores y controles negativos](benchmarks/results/2026-09-07-census.json) · [Ejecución del conteo](https://github.com/pnll1991/io-delegation-skill/actions/runs/34155367336)
+
+```bash
+# Solo conteo: sin descargar un modelo ni ejecutar inferencia
+python -m pip install tiktoken==0.11.0
+python benchmarks/run.py --output benchmark-output
+```
+
+El piloto de modelos se ejecuta manualmente; el conteo liviano corre ante cambios relevantes. Sus dependencias no son necesarias para instalar ni usar la skill.
+
 ## Qué incluye
 
-La carpeta instalable contiene la skill, el script, ejemplos y referencias de flujo, adaptadores, validación y fuentes. El repositorio agrega instalador, 75 pruebas offline, CI, documentación, licencia MIT y guías de contribución.
+La carpeta instalable contiene la skill, el script, ejemplos y referencias de flujo, adaptadores, validación y fuentes. El repositorio agrega instalador, 84 pruebas offline (75 originales y 9 del benchmark), CI, documentación, licencia MIT y guías de contribución.
 
 La ejecución Linux previa a publicar aprobó 75 pruebas. El estado real de la matriz de GitHub está en el badge; los tests de infraestructura no demuestran selección automática en agentes ni ahorro con modelos. Ver [alcance de pruebas](docs/TESTING.md).
 

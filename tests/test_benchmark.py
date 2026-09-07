@@ -50,6 +50,7 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(b.score('{"a":true}', {'a': 1}))
         self.assertFalse(b.score('{"a":1,"extra":2}', {'a': 1}))
         self.assertFalse(b.score('Maybe {"a":1}', {'a': 1}))
+        self.assertFalse(b.score('{"a":NaN}', {'a': 1}))
 
     def test_combined_counts_do_not_drop_failed_calls(self):
         rows = [{'input_tokens': 100, 'output_tokens': 20, 'total_tokens': 120, 'passed': False},
@@ -59,3 +60,16 @@ class BenchmarkTests(unittest.TestCase):
     def test_reduction_keeps_negative_results(self):
         self.assertEqual(b.reduction(100, 150), -50.0)
         self.assertIsNone(b.reduction(0, 20))
+
+
+    def test_worker_assignments_allow_numeric_separators_without_execution(self):
+        summary = {'findings': [
+            {'symbol': 'MAX_FILES', 'evidence': 'MAX_FILES = 12'},
+            {'symbol': 'MAX_SUMMARY_BYTES', 'evidence': 'MAX_SUMMARY_BYTES = 6_000'},
+            {'symbol': 'MAX_CODE_BYTES', 'evidence': 'MAX_CODE_BYTES = 64_000'}]}
+        self.assertTrue(b.constants_covered(summary, b.cases()[0]['expected']))
+        summary['findings'][0]['evidence'] = 'MAX_FILES = 112'
+        self.assertFalse(b.constants_covered(summary, b.cases()[0]['expected']))
+        summary['findings'][0]['evidence'] = 'MAX_FILES = int("12")'
+        self.assertFalse(b.constants_covered(summary, b.cases()[0]['expected']))
+        self.assertFalse(b.constants_covered({'findings': []}, b.cases()[0]['expected']))
