@@ -1,0 +1,33 @@
+{
+  "record_type": "template_not_a_measured_result",
+  "task_id": null,
+  "commit": null,
+  "agent": null,
+  "agent_version": null,
+  "main_model": null,
+  "worker_model": null,
+  "initial_context_and_cache": null,
+  "acceptance_criteria": null,
+  "baseline": {
+    "main_input_tokens": null,
+    "main_output_tokens": null,
+    "total_cost": null,
+    "cost_currency": null,
+    "wall_seconds_to_validated_result": null,
+    "quality_passed": null
+  },
+  "with_skill": {
+    "main_input_tokens": null,
+    "main_output_tokens": null,
+    "worker_input_tokens_all_calls": null,
+    "worker_output_tokens_all_calls": null,
+    "worker_calls": null,
+    "retries_and_rework": null,
+    "total_cost": null,
+    "cost_currency": null,
+    "wall_seconds_to_validated_result": null,
+    "quality_passed": null
+  },
+  "pricing_and_measurement_source": null,
+  "limitations": []
+}

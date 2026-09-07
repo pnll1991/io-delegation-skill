@@ -1,0 +1,12 @@
+{
+  "approved": false,
+  "adapter": "chat-completions",
+  "url": "http://127.0.0.1:1234/v1/chat/completions",
+  "model": "REEMPLAZAR_CON_ID_DEL_MODELO",
+  "allow_remote": false,
+  "temperature": 0.2,
+  "token_limit_field": "max_tokens",
+  "reader_max_tokens": 1600,
+  "writer_max_tokens": 4096,
+  "timeout_seconds": 60
+}
