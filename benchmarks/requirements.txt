@@ -1,0 +1,3 @@
+# Benchmark-only dependencies; not required by the skill or its runner.
+tiktoken==0.11.0
+transformers==4.56.2
