@@ -1,5 +1,7 @@
 # I/O Delegation
 
+**English** | [Español](README.es.md)
+
 ### Keep the reasoning. Delegate the noise.
 
 [![Offline tests](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml/badge.svg)](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml)
@@ -8,7 +10,7 @@
 
 **Claude Code · Codex · Cursor · any agent that can read Markdown**
 
-[Español](README.es.md) · [The skill](skills/io-delegation/SKILL.md) · [Installation](docs/INSTALLATION.md) · [Adapters](skills/io-delegation/references/ADAPTERS.md)
+[The skill](skills/io-delegation/SKILL.md) · [Installation](docs/INSTALLATION.md) · [Benchmark](#benchmark) · [Adapters](skills/io-delegation/references/ADAPTERS.md)
 
 A portable Agent Skill that keeps large factual reads and predictable file generation out of the main agent's context when delegation is useful. The main agent retains architecture, debugging, sensitive decisions, verification and integration.
 

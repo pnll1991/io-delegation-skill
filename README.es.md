@@ -1,10 +1,12 @@
 # I/O Delegation
 
+[English](README.md) | **Español**
+
 ### Menos contexto innecesario. Más atención a lo que importa
 
 [![Pruebas offline](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml/badge.svg)](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml)
 
-[English](README.md) · [Skill](skills/io-delegation/SKILL.md) · [Instalación](docs/INSTALLATION.md) · [Adaptadores](skills/io-delegation/references/ADAPTERS.md)
+[Skill](skills/io-delegation/SKILL.md) · [Instalación](docs/INSTALLATION.md) · [Benchmark](#benchmark) · [Adaptadores](skills/io-delegation/references/ADAPTERS.md)
 
 Una skill portable para separar exploración, trabajo repetitivo y decisiones de ingeniería. Funciona como instrucciones para **Claude Code, Codex, Cursor y otros agentes que lean Markdown**. Incluye un ejecutor opcional para auxiliares locales o remotos aprobados.
 
