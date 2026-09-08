@@ -6,13 +6,32 @@
 python -m unittest discover -s tests -v
 ```
 
-La suite contiene **84 pruebas offline**: 75 del ejecutor, transporte, instalación y paquete; 9 del benchmark. La ejecución previa a publicación del 7 de septiembre de 2026 aprobó 75 pruebas. La ampliación inicial a 83 pasó las seis combinaciones de GitHub Actions; la novena prueba del benchmark cubre valores Python con separadores numéricos, como `6_000`. El tiempo de esta suite no es un benchmark de modelos.
+La suite contiene **145 pruebas offline**: 75 del ejecutor, transporte, instalación y paquete; 9 del benchmark; 51 del control de lecturas e instalador opcional; y 10 regresiones de lectura multilínea y rangos de `tail`. El tiempo de esta suite no es un benchmark de modelos. El resultado de cada ejecución y sus omisiones se consulta en GitHub Actions para el commit correspondiente.
+
+La ejecución previa a publicación del 7 de septiembre de 2026 aprobó 75 pruebas. La ampliación inicial a 83 pasó las seis combinaciones de GitHub Actions; la novena prueba del benchmark cubre valores Python con separadores numéricos, como `6_000`.
 
 Se verifican selección y límites de archivos, UTF-8, hashes, exclusiones por rutas y enlaces, formato de resúmenes, evidencia literal, cobertura declarada, fuentes modificadas, candidatos sin sobrescritura, configuración aprobada, transporte de comando, timeouts, errores sin revelar cuerpos privados, HTTP en loopback, truncamiento, respuestas malformadas, redirecciones bloqueadas, formato de la skill, enlaces relativos e instalación autocontenida.
 
 Las pruebas del benchmark verifican selectores sobre el código real, respuestas esperadas, inclusión de la skill completa, control ya focalizado, formatos estrictos, suma del consumo de llamadas fallidas y conservación de resultados negativos. La lectura de evidencia numérica usa AST y no ejecuta código.
 
 Los tests de `tests/` usan programas stub y un servidor HTTP sintético. **No consultan modelos ni proveedores externos.** La prueba de delimitación de contenido verifica el JSON, no demuestra resistencia de un modelo real a prompt injection.
+
+## Control opcional de lecturas · 0.2.0
+
+El repositorio conserva un único instalador de hooks, `install_hooks.py`, y un motor compartido, `skills/io-delegation/scripts/read_guard.py`. No se superponen configuradores alternativos. La publicación no activa los hooks ni cambia permisos en proyectos del usuario.
+
+Las 51 pruebas iniciales cubren límites, rangos, sintaxis admitida, entradas malformadas, decisiones por anfitrión, ejecución de los scripts como procesos Python, instalación, respaldos y eliminación selectiva. Las 10 regresiones agregadas durante la revisión de publicación comprueban que `tail -n +N` se mide desde N hasta el final; que los saltos de línea separan comandos; que un comentario no oculta un lector en la línea siguiente; y que los lectores reconocidos de una misma llamada comparten el presupuesto. También mantienen casos de lectura pequeña permitida y verifican los tres formatos de denegación en procesos reales.
+
+```bash
+# Pruebas iniciales del control y el instalador
+python -m unittest discover -s tests -p test_read_guard.py -v
+# Regresiones de publicación
+python -m unittest discover -s tests -p test_read_guard_regressions.py -v
+```
+
+Las 10 regresiones pasaron localmente el 8 de septiembre de 2026 sobre el código corregido. Los archivos utilizados fueron sintéticos y no se ejecutaron los comandos de lectura propuestos. Estos tests no abren clientes Claude Code, Codex o Cursor. La activación real se verifica con el [procedimiento del anfitrión](../skills/io-delegation/references/ENFORCEMENT.md#test-a-real-host-before-claiming-enforcement).
+
+La interpretación de shell continúa siendo deliberadamente limitada y conservadora. No es un intérprete completo, una sandbox ni un control universal de todo el contexto. No se ejecutó un nuevo benchmark de tokens para estos hooks.
 
 ## GitHub Actions
 

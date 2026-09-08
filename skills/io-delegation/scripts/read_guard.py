@@ -144,12 +144,18 @@ def reader_args(tokens: list[str]):
         if lower in {"-n", "--lines", "-totalcount", "-head", "-tail"}:
             if i + 1 == len(args):
                 raise ValueError("Missing range")
-            limit = positive(int(args[i + 1]))
-            tail = tail or lower == "-tail"
+            count = positive(int(args[i + 1]))
+            if name == "tail" and lower in {"-n", "--lines"} and args[i + 1].startswith("+"):
+                # tail -n +N reads from line N through EOF, not the last N lines.
+                offset, limit, tail = count, None, False
+            else:
+                offset, limit = 1, count
+                tail = name == "tail" or lower == "-tail"
             i += 2
             continue
         if re.fullmatch(r"-n\d+|--lines=\d+", item):
-            limit = positive(int(re.search(r"\d+", item)[0]))
+            offset, limit = 1, positive(int(re.search(r"\d+", item)[0]))
+            tail = name == "tail"
         elif lower in {"-path", "-literalpath"}:
             if i + 1 == len(args):
                 raise ValueError("Missing path")
@@ -175,13 +181,16 @@ def shell_request(command: str, root: Path, cwd: Path, budget: dict) -> dict:
         raise ValueError("Invalid command")
     # Preserve backslashes in Windows/PowerShell literals; strip paired quotes only.
     windows = bool(re.search(r"\b[A-Za-z]:\\|\b(?:Get-Content|gc)\b", command, re.I))
-    lex = shlex.shlex(command, posix=not windows, punctuation_chars=";&|<>")
+    lex = shlex.shlex(command, posix=not windows, punctuation_chars=";&|<>\n")
+    # Newlines separate commands; comments must not consume that separator.
+    # This remains a conservative literal-command parser, not a shell evaluator.
+    lex.whitespace = " \t\r"
     lex.whitespace_split = True
-    lex.commenters = "#"
+    lex.commenters = ""
     tokens = [t[1:-1] if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'" else t for t in lex]
     groups, current = [], []
     for t in tokens + [";"]:
-        if t in {";", "&&", "||", "|"}:
+        if t and set(t) <= set(";&|\n"):
             if current:
                 groups.append(current)
             current = []
