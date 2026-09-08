@@ -3,7 +3,7 @@ name: io-delegation
 description: Reduce contexto innecesario al explorar varios archivos, consultar código extenso o generar archivos repetitivos siguiendo referencias. Prioriza herramientas deterministas y delega I/O a un auxiliar aislado solo cuando existe y conviene. Conserva depuración, arquitectura, decisiones sensibles y edición exacta en el agente principal.
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # I/O Delegation
@@ -76,4 +76,10 @@ Ante contexto insuficiente, JSON inválido, evidencia ausente, truncamiento, tim
 
 Registrá brevemente ruta elegida, fuentes, validaciones y limitaciones relevantes. No inventes ahorro ni muestres contadores estimados como facturación real. Separá tokens del principal, tokens del auxiliar, costo monetario y tiempo total. Sin medición comparativa, el ahorro es desconocido.
 
-**Límite de cumplimiento:** esta skill guía decisiones; no puede interceptar por sí sola las herramientas de todos los agentes. El script aplica sus controles únicamente a llamadas que pasan por él. Un hook específico puede reforzar la política, pero no es requisito ni está incluido.
+## 7. Control opcional de lecturas
+
+El paquete incluye un motor común `scripts/read_guard.py` y un instalador opcional de hooks para Claude Code, Codex y Cursor. No son requisitos del núcleo. Distinguí instrucciones solas, observación y bloqueo de las herramientas cubiertas; instalar un hook no demuestra que el anfitrión lo haya ejecutado.
+
+Ante un bloqueo, usá búsqueda, un rango explícito o un auxiliar aprobado cuando convenga. No cambies de herramienta para cargar el mismo archivo completo ni desactives el control. Sin auxiliar, continuá por fragmentos; las decisiones y ediciones siguen en el principal. Un offset sin límite no evita el presupuesto. No actives hooks ni cambies sus umbrales sin autorización.
+
+Consultá [ENFORCEMENT.md](references/ENFORCEMENT.md) solo para instalar, diagnosticar o verificar la integración. El control no cubre todos los programas, herramientas o rutas de carga de contexto: no es una sandbox ni garantiza ahorro. Los benchmarks publicados de 0.1.0 no miden estos hooks.

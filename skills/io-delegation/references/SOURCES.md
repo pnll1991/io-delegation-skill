@@ -1,6 +1,12 @@
 # Procedencia y decisiones de adaptación
 
-Fuentes consultadas el 7 de septiembre de 2026. Implementación independiente: no es un producto oficial ni una copia del plugin de Spotify. No se redistribuyen el artículo, sus imágenes ni su código.
+Fuentes iniciales consultadas el 7 de septiembre de 2026. Implementación independiente: no es un producto oficial ni una copia del plugin de Spotify. No se redistribuyen el artículo, sus imágenes ni su código.
+
+## Evolución 0.2.0 — 8 de septiembre de 2026
+
+La adaptación inicial de 0.1 no incluía hooks. La versión 0.2 añade un motor común de presupuesto de lecturas y registros opcionales para Claude Code, Codex y Cursor. La política sigue siendo portable; los adaptadores de protocolo son específicos y no son requisito del núcleo. Sus contratos se contrastaron con las referencias oficiales de hooks de los tres agentes. La implementación incorpora pruebas de protocolo, no una certificación de ejecución dentro de cada cliente.
+
+[ENFORCEMENT.md](ENFORCEMENT.md) documenta las fuentes primarias, instalación, cobertura concreta, límites y el procedimiento de prueba real. No se heredan porcentajes de Spotify ni se atribuyen los benchmarks de 0.1 a estos hooks. El control de generación sigue siendo orientativo; la nueva intercepción se limita a las lecturas reconocidas.
 
 ## Inspiración editorial
 
@@ -24,7 +30,7 @@ Portal documenta modos definidos por instrucciones y herramientas, con límites 
 | Problema de exceso de I/O | Clasificación previa; búsqueda determinista antes de llamar a un modelo |
 | Dos perfiles especializados | `bulk-read` factual y `code-write` para archivos nuevos |
 | Configuración separada del enrutamiento | Política en `SKILL.md`; transporte en JSON aprobado |
-| Capas de control | Instrucciones portables + validadores de CLI; sin prometer hooks universales |
+| Capas de control | Instrucciones portables, validadores del runner y hooks opcionales desde 0.2; cobertura explícita, no universal |
 | Reutilización entre proyectos | Carpeta autocontenida, instalación local/global y referencias relativas |
 | Selección de archivos | Allowlist explícita; JSON serializado en lugar de delimitadores XML |
 | Salida compacta | Resumen validado por evidencia o manifiesto de candidato |
@@ -34,7 +40,7 @@ Portal documenta modos definidos por instrucciones y herramientas, con límites 
 | Latencia y límites | Presupuesto configurable de llamada; partición explícita; no copiar el límite de Portal como universal |
 | Benchmark | Procedimiento comparativo propio; ningún porcentaje heredado |
 | Extensibilidad | Nuevos contratos acotados, sin obligación de usar MCP o plugins |
-| Adopción | Instalación por carpeta, no marketplace obligatorio |
+| Adopción | Instalación por carpeta; hooks optativos con registro separado |
 
 La tabla documenta decisiones del paquete, no equivalencia funcional con Portal. No se implementan su administración, autenticación, resolución de modos, permisos de equipo ni servicios alojados.
 
@@ -50,7 +56,7 @@ El script usa stdin para el adaptador de comando, limita tamaños, rechaza evide
 
 ## Formato e integración
 
-El formato `SKILL.md` con `name` y `description`, recursos relativos y carga progresiva sigue Agent Skills [S4]. Se evita `allowed-tools`, sustituciones de variables del anfitrión, hooks y frontmatter específico de proveedor.
+El formato `SKILL.md` con `name` y `description`, recursos relativos y carga progresiva sigue Agent Skills [S4]. El núcleo no depende de `allowed-tools`, sustituciones de variables del anfitrión, hooks ni frontmatter específico de proveedor. Las integraciones opcionales de 0.2 están separadas y documentan sus protocolos concretos.
 
 Las rutas de instalación se verificaron en documentación oficial: `.claude/skills` para Claude Code; `.agents/skills` para Codex; Cursor reconoce `.agents/skills` y `.cursor/skills`, además de rutas de compatibilidad [S5][S6][S7]. Una ruta documentada no demuestra que se haya ensayado aquí la versión instalada de cada agente.
 
@@ -68,5 +74,6 @@ Las rutas de instalación se verificaron en documentación oficial: `.claude/ski
 - [Skills en Claude Code][S5]
 - [Skills en Codex][S6]
 - [Skills en Cursor][S7]
+- [Fuentes de hooks y límites de 0.2](ENFORCEMENT.md#verification-and-sources)
 
 Los nombres y marcas pertenecen a sus respectivos titulares. La licencia MIT de este repositorio cubre únicamente su material original.
