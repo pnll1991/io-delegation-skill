@@ -87,7 +87,9 @@ def main() -> int:
         print(f"missing output: {args.output}", file=sys.stderr)
         return 2
     try:
-        actual = json.loads(output.read_text(encoding="utf-8"))
+        # utf-8-sig accepts both normal UTF-8 and UTF-8 with BOM, which is common
+        # when files are produced by Windows PowerShell 5.1.
+        actual = json.loads(output.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"invalid output: {exc}", file=sys.stderr)
         return 2
