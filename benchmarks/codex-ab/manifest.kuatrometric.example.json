@@ -43,7 +43,7 @@
   "tasks": [
     {
       "id": "kuatrometric-html-inventory",
-      "user_prompt": "Creá benchmark-output/html-inventory.json. Debe ser un array JSON con exactamente un objeto por cada archivo herramientas/**/index.html. Cada objeto debe tener exactamente las claves path, title y h1. path debe ser la ruta relativa con barras /. title debe contener el texto visible de <title> y h1 el texto visible del primer <h1>, decodificando entidades y colapsando espacios. Ordená por path. No modifiques ningún archivo existente. Usá el método más eficiente y validá el resultado.",
+      "user_prompt": "Creá benchmark-output/html-inventory.json. Debe ser un array JSON con exactamente un objeto por cada archivo herramientas/**/index.html. Cada objeto debe tener exactamente las claves path, title y h1. path debe ser la ruta relativa con barras /. title debe contener el texto visible de <title> y h1 el texto visible del primer <h1>, decodificando entidades y colapsando espacios. El orden de los objetos del array no es significativo. No modifiques ningún archivo existente. Usá el método más eficiente y validá el resultado.",
       "acceptance": [
         "python D:/io-delegation-skill-ab/benchmarks/codex-ab/validate_html_inventory.py --root . --glob \"herramientas/**/index.html\" --output benchmark-output/html-inventory.json"
       ],
