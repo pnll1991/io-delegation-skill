@@ -1,0 +1,56 @@
+{
+  "repo": "D:/landing-kuatrometric",
+  "base_commit": "HEAD",
+  "repetitions": 3,
+  "max_wall_seconds": 900,
+  "output_price_to_input_price_ratio": 1.0,
+  "forbid_base_paths": [
+    ".agents/skills/io-delegation"
+  ],
+  "variables": {
+    "io_delegation_root": "D:/io-delegation-skill-ab",
+    "hook_python": "python"
+  },
+  "strategies": [
+    {
+      "name": "baseline",
+      "model": "gpt-5.6-luna",
+      "sandbox": "workspace-write",
+      "config_overrides": ["model_reasoning_effort=\"medium\""]
+    },
+    {
+      "name": "skill-only",
+      "model": "gpt-5.6-luna",
+      "sandbox": "workspace-write",
+      "config_overrides": ["model_reasoning_effort=\"medium\""],
+      "prompt_prefix": "Aplicá la skill io-delegation a esta tarea. Localizá primero. Priorizá búsqueda determinista y lecturas dirigidas. Delegá sólo si existe un worker aprobado y conviene; si no, continuá con lecturas selectivas. Conservá decisiones y edición final en el agente principal.",
+      "setup_commands": [
+        ["{python}", "{io_delegation_root}/install.py", "--agent", "codex", "--project", "{worktree}"]
+      ]
+    },
+    {
+      "name": "skill-hooks",
+      "model": "gpt-5.6-luna",
+      "sandbox": "workspace-write",
+      "config_overrides": ["model_reasoning_effort=\"medium\""],
+      "prompt_prefix": "Aplicá la skill io-delegation a esta tarea. Localizá primero. Priorizá búsqueda determinista y lecturas dirigidas. Respetá el read guard instalado y no lo eludas cambiando de herramienta. Sin worker aprobado, continuá con lecturas acotadas. Conservá decisiones y edición final en el agente principal.",
+      "setup_commands": [
+        ["{python}", "{io_delegation_root}/install.py", "--agent", "codex", "--project", "{worktree}"],
+        ["{python}", "{io_delegation_root}/install_hooks.py", "--agent", "codex", "--project", "{worktree}", "--python", "{hook_python}"]
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "kuatrometric-html-inventory",
+      "user_prompt": "Creá benchmark-output/html-inventory.json. Debe ser un array JSON con exactamente un objeto por cada archivo herramientas/**/index.html. Cada objeto debe tener exactamente las claves path, title y h1. path debe ser la ruta relativa con barras /. title debe contener el texto visible de <title> y h1 el texto visible del primer <h1>, decodificando entidades y colapsando espacios. Ordená por path. No modifiques ningún archivo existente. Usá el método más eficiente y validá el resultado.",
+      "acceptance": [
+        "python D:/io-delegation-skill-ab/benchmarks/codex-ab/validate_html_inventory.py --root . --glob \"herramientas/**/index.html\" --output benchmark-output/html-inventory.json"
+      ],
+      "regression": [
+        "python -c \"import subprocess,sys; p=subprocess.check_output(['git','diff','--name-only'], text=True).splitlines(); sys.exit(0 if p==['benchmark-output/html-inventory.json'] else 1)\""
+      ],
+      "max_wall_seconds": 900
+    }
+  ]
+}
