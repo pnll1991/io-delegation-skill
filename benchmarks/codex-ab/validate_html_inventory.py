@@ -14,33 +14,37 @@ import sys
 class PageParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self._title_depth = 0
-        self._h1_depth = 0
+        self._in_title = False
+        self._in_first_h1 = False
+        self._seen_h1 = False
         self._title: list[str] = []
         self._h1: list[str] = []
-        self._seen_h1 = False
 
     def handle_starttag(self, tag: str, attrs) -> None:
         tag = tag.lower()
         if tag == "title":
-            self._title_depth += 1
+            self._in_title = True
         elif tag == "h1" and not self._seen_h1:
-            self._h1_depth += 1
+            self._in_first_h1 = True
             self._seen_h1 = True
-        elif self._h1_depth:
-            self._h1_depth += 1
+        elif tag == "br" and self._in_first_h1:
+            self._h1.append(" ")
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        if tag.lower() == "br" and self._in_first_h1:
+            self._h1.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
-        if tag == "title" and self._title_depth:
-            self._title_depth -= 1
-        elif self._h1_depth:
-            self._h1_depth -= 1
+        if tag == "title":
+            self._in_title = False
+        elif tag == "h1" and self._in_first_h1:
+            self._in_first_h1 = False
 
     def handle_data(self, data: str) -> None:
-        if self._title_depth:
+        if self._in_title:
             self._title.append(data)
-        if self._h1_depth:
+        if self._in_first_h1:
             self._h1.append(data)
 
     @staticmethod
