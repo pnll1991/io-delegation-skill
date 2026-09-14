@@ -62,7 +62,7 @@ class PageParser(HTMLParser):
 
 def inventory(root: Path, pattern: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for path in sorted(root.glob(pattern), key=lambda p: p.as_posix()):
+    for path in root.glob(pattern):
         if not path.is_file():
             continue
         parser = PageParser()
@@ -72,7 +72,26 @@ def inventory(root: Path, pattern: str) -> list[dict[str, str]]:
             "title": parser.title,
             "h1": parser.h1,
         })
-    return rows
+    return sorted(rows, key=lambda row: row["path"])
+
+
+def canonical_actual(value) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        raise ValueError("output must be a JSON array")
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, row in enumerate(value):
+        if not isinstance(row, dict):
+            raise ValueError(f"entry {index} must be an object")
+        if set(row) != {"path", "title", "h1"}:
+            raise ValueError(f"entry {index} must contain exactly path, title and h1")
+        if not all(isinstance(row[key], str) for key in ("path", "title", "h1")):
+            raise ValueError(f"entry {index} fields must be strings")
+        if row["path"] in seen:
+            raise ValueError(f"duplicate path: {row['path']}")
+        seen.add(row["path"])
+        rows.append(row)
+    return sorted(rows, key=lambda row: row["path"])
 
 
 def main() -> int:
@@ -87,10 +106,9 @@ def main() -> int:
         print(f"missing output: {args.output}", file=sys.stderr)
         return 2
     try:
-        # utf-8-sig accepts both normal UTF-8 and UTF-8 with BOM, which is common
-        # when files are produced by Windows PowerShell 5.1.
-        actual = json.loads(output.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as exc:
+        raw_actual = json.loads(output.read_text(encoding="utf-8-sig"))
+        actual = canonical_actual(raw_actual)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"invalid output: {exc}", file=sys.stderr)
         return 2
     expected = inventory(root, args.glob)
