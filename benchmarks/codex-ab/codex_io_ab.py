@@ -135,7 +135,7 @@ def aggregate(rows):
 def summary(path, rows):
     a=aggregate(rows); b=next((x for x in a if x["strategy"]=="baseline"), a[0] if a else None)
     if not b: return
-    lines=["# Codex × io-delegation A/B", "", "| Strategy | Success | Principal CPTS | Δ | System CPTS | Δ | Workers | Wall s |",
+    lines=["# Codex x io-delegation A/B", "", "| Strategy | Success | Principal CPTS | Delta | System CPTS | Delta | Workers | Wall s |",
            "|---|---:|---:|---:|---:|---:|---:|---:|"]
     for x in a:
         pc=x["principal_CPTS"]; sc=x["system_CPTS"]
@@ -153,7 +153,7 @@ def main():
     ap.add_argument("--seed", type=int, default=20260914); ap.add_argument("--strategy", action="append"); ap.add_argument("--task", action="append")
     args=ap.parse_args()
     if not shutil.which("codex") or not shutil.which("git"): raise SystemExit("git and authenticated codex CLI are required")
-    mp=args.manifest.expanduser().resolve(); m=json.loads(mp.read_text(encoding="utf-8")); repo=Path(m["repo"]).expanduser().resolve()
+    mp=args.manifest.expanduser().resolve(); m=json.loads(mp.read_text(encoding="utf-8-sig")); repo=Path(m["repo"]).expanduser().resolve()
     strategies=m["strategies"]; tasks=m["tasks"]
     if args.strategy: strategies=[x for x in strategies if x["name"] in set(args.strategy)]
     if args.task: tasks=[x for x in tasks if x["id"] in set(args.task)]
@@ -185,6 +185,11 @@ def main():
                 try: rok,rr=check_commands(wt,task.get("regression",[]),int(task.get("acceptance_timeout_seconds",900)))
                 except subprocess.TimeoutExpired: rok,rr=False,[{"error":"regression timeout"}]
                 (rd/"acceptance.json").write_text(json.dumps(ar,indent=2),encoding="utf-8"); (rd/"regression.json").write_text(json.dumps(rr,indent=2),encoding="utf-8")
+                status=git(wt,"status","--porcelain=v1","--untracked-files=all"); (rd/"git-status.txt").write_text(status.stdout,encoding="utf-8",errors="replace")
+                for rel in task.get("capture_paths",[]):
+                    src=wt/rel
+                    if src.is_file():
+                        dst=rd/("captured-"+rel.replace("/","_").replace("\\","_")); shutil.copy2(src,dst)
                 diff=git(wt,"diff","--binary"); (rd/"patch.diff").write_text(diff.stdout,encoding="utf-8",errors="replace")
                 row={"task":task["id"],"strategy":strategy["name"],"repetition":rep,"valid_success":rc==0 and aok and rok,
                      "codex_exit_code":rc,"acceptance_ok":aok,"regression_ok":rok,"wall_seconds":wall,
