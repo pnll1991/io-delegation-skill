@@ -1,0 +1,47 @@
+{
+  "repo": "C:/ABSOLUTE/PATH/TO/TARGET_REPO",
+  "base_commit": "HEAD",
+  "repetitions": 3,
+  "max_wall_seconds": 1800,
+  "output_price_to_input_price_ratio": 1.0,
+  "forbid_base_paths": [
+    ".agents/skills/io-delegation"
+  ],
+  "variables": {
+    "io_delegation_root": "C:/ABSOLUTE/PATH/TO/io-delegation-skill",
+    "hook_python": "python"
+  },
+  "strategies": [
+    {
+      "name": "baseline",
+      "sandbox": "workspace-write"
+    },
+    {
+      "name": "skill-only",
+      "sandbox": "workspace-write",
+      "prompt_prefix": "Apply the io-delegation skill to this task. Localize first. Prefer deterministic search and targeted reads. Delegate only if an approved worker is actually configured and beneficial; otherwise continue with selective reads. Keep debugging, architecture, sensitive decisions and final edits in the main agent.",
+      "setup_commands": [
+        ["{python}", "{io_delegation_root}/install.py", "--agent", "codex", "--project", "{worktree}"]
+      ]
+    },
+    {
+      "name": "skill-hooks",
+      "sandbox": "workspace-write",
+      "prompt_prefix": "Apply the io-delegation skill to this task. Localize first. Prefer deterministic search and targeted reads. Obey the installed read guard; do not bypass it by switching tools. Delegate only if an approved worker is actually configured and beneficial; otherwise continue with bounded reads. Keep debugging, architecture, sensitive decisions and final edits in the main agent.",
+      "setup_commands": [
+        ["{python}", "{io_delegation_root}/install.py", "--agent", "codex", "--project", "{worktree}"],
+        ["{python}", "{io_delegation_root}/install_hooks.py", "--agent", "codex", "--project", "{worktree}", "--python", "{hook_python}"]
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "large-read-bug",
+      "base_commit": "<PINNED_SHA>",
+      "user_prompt": "Fix <observable bug>. Preserve behavior outside the bug. Run the smallest relevant validation.",
+      "acceptance": ["<hidden targeted acceptance command>"],
+      "regression": ["<hidden regression command>"],
+      "max_wall_seconds": 1200
+    }
+  ]
+}
