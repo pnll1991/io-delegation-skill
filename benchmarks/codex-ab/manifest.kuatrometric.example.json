@@ -50,9 +50,6 @@
       "regression": [
         "python -c \"import subprocess,sys; p=subprocess.check_output(['git','status','--porcelain=v1','--untracked-files=all'], text=True).splitlines(); sys.exit(0 if p==['?? benchmark-output/html-inventory.json'] else 1)\""
       ],
-      "capture_paths": [
-        "benchmark-output/html-inventory.json"
-      ],
       "max_wall_seconds": 900
     }
   ]
