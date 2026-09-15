@@ -1,0 +1,21 @@
+{
+  "notice": "Template only. Prefer setup_worker.py to generate verified absolute paths and a smoke receipt.",
+  "repo": "C:/ABSOLUTE/TARGET_REPO",
+  "base_commit": "HEAD",
+  "repetitions": 1,
+  "strategies": [
+    {"name":"baseline", "worker_mode":"disabled", "sandbox":"workspace-write"},
+    {
+      "name":"skill-worker-required", "worker_mode":"required", "sandbox":"workspace-write",
+      "worker_config":"C:/ABSOLUTE/worker.local.json",
+      "worker_receipt":"C:/ABSOLUTE/worker-smoke.json",
+      "prompt_prefix":"Use io-delegation and verify worker evidence in the original source.",
+      "setup_commands":[["{python}","{io_delegation_root}/install.py","--agent","codex","--project","{worktree}"]]
+    }
+  ],
+  "tasks": [
+    {"id":"replace-with-real-task", "user_prompt":"REPLACE with task and acceptance criteria",
+     "acceptance":[["{python}","C:/ABSOLUTE/acceptance.py"]],
+     "regression":[["{python}","C:/ABSOLUTE/regression.py"]]}
+  ]
+}
