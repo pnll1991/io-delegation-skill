@@ -1,10 +1,9 @@
 {
   "approved": false,
-  "adapter": "chat-completions",
-  "url": "http://127.0.0.1:1234/v1/chat/completions",
-  "model": "YOUR_LOCAL_WORKER_MODEL",
-  "timeout_seconds": 60,
-  "reader_max_tokens": 1600,
-  "writer_max_tokens": 4096,
-  "temperature": 0.2
+  "adapter": "codex-cli",
+  "model": "gpt-5.6-luna",
+  "executable": "codex",
+  "reasoning_effort": "low",
+  "timeout_seconds": 120,
+  "max_calls_per_workspace": 4
 }

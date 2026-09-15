@@ -1,37 +1,21 @@
 {
-  "repo": "C:/ABSOLUTE/PATH/TO/TARGET_REPO",
+  "notice": "Template only. Prefer setup_worker.py to generate verified absolute paths and a smoke receipt.",
+  "repo": "C:/ABSOLUTE/TARGET_REPO",
   "base_commit": "HEAD",
-  "repetitions": 3,
-  "max_wall_seconds": 1800,
-  "output_price_to_input_price_ratio": 1.0,
-  "forbid_base_paths": [".agents/skills/io-delegation"],
-  "variables": {
-    "io_delegation_root": "C:/ABSOLUTE/PATH/TO/io-delegation-skill",
-    "worker_config": "C:/ABSOLUTE/PATH/TO/worker.local.json",
-    "hook_python": "python"
-  },
+  "repetitions": 1,
   "strategies": [
-    {"name": "baseline", "sandbox": "workspace-write"},
+    {"name":"baseline", "worker_mode":"disabled", "sandbox":"workspace-write"},
     {
-      "name": "skill-hooks-worker",
-      "sandbox": "workspace-write",
-      "prompt_prefix": "Apply the io-delegation skill. An approved worker adapter is available at .agents/skills/io-delegation/worker.benchmark.json. Use deterministic search or bounded direct reads first. Use bulk-read only when it is likely to reduce total cost, and verify important evidence in the original source. Keep debugging, architecture, sensitive decisions and final edits in the main agent. Obey the read guard and do not bypass it.",
-      "worker_input_price_to_main_input": null,
-      "worker_output_price_to_main_input": null,
-      "setup_commands": [
-        ["{python}", "{io_delegation_root}/install.py", "--agent", "codex", "--project", "{worktree}"],
-        ["{python}", "{io_delegation_root}/install_hooks.py", "--agent", "codex", "--project", "{worktree}", "--python", "{hook_python}"],
-        ["{python}", "-c", "import shutil,sys; shutil.copy2(sys.argv[1], sys.argv[2])", "{worker_config}", "{worktree}/.agents/skills/io-delegation/worker.benchmark.json"]
-      ]
+      "name":"skill-worker-required", "worker_mode":"required", "sandbox":"workspace-write",
+      "worker_config":"C:/ABSOLUTE/worker.local.json",
+      "worker_receipt":"C:/ABSOLUTE/worker-smoke.json",
+      "prompt_prefix":"Use io-delegation and verify worker evidence in the original source.",
+      "setup_commands":[["{python}","{io_delegation_root}/install.py","--agent","codex","--project","{worktree}"]]
     }
   ],
   "tasks": [
-    {
-      "id": "large-read-bug",
-      "base_commit": "<PINNED_SHA>",
-      "user_prompt": "Fix <observable bug>. Preserve behavior outside the bug. Run the smallest relevant validation.",
-      "acceptance": ["<hidden targeted acceptance command>"],
-      "regression": ["<hidden regression command>"]
-    }
+    {"id":"replace-with-real-task", "user_prompt":"REPLACE with task and acceptance criteria",
+     "acceptance":[["{python}","C:/ABSOLUTE/acceptance.py"]],
+     "regression":[["{python}","C:/ABSOLUTE/regression.py"]]}
   ]
 }

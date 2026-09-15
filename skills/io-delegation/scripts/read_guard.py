@@ -83,7 +83,6 @@ def measure(path: str, root: Path, cwd: Path, budget: dict,
     else:
         lines = size = 0
         with p.open("rb") as f:
-            # Bounded chunks avoid allocating huge minified lines. Count CRLF as one.
             index = 1
             scanned = 0
             while True:
@@ -113,7 +112,6 @@ def measure(path: str, root: Path, cwd: Path, budget: dict,
 def read_request(data: dict, root: Path, cwd: Path, budget: dict) -> dict:
     offset = positive(data.get("offset"), 1)
     limit = positive(data.get("limit"))
-    # An offset alone is NOT a bounded read: the remaining content is measured.
     return measure(data.get("file_path", data.get("path")), root, cwd, budget, offset, limit)
 
 
@@ -146,7 +144,6 @@ def reader_args(tokens: list[str]):
                 raise ValueError("Missing range")
             count = positive(int(args[i + 1]))
             if name == "tail" and lower in {"-n", "--lines"} and args[i + 1].startswith("+"):
-                # tail -n +N reads from line N through EOF, not the last N lines.
                 offset, limit, tail = count, None, False
             else:
                 offset, limit = 1, count
@@ -155,7 +152,7 @@ def reader_args(tokens: list[str]):
             continue
         if re.fullmatch(r"-n\d+|--lines=\d+", item):
             offset, limit = 1, positive(int(re.search(r"\d+", item)[0]))
-            tail = name == "tail"
+            tail = name == "tail" or lower == "-tail"
         elif lower in {"-path", "-literalpath"}:
             if i + 1 == len(args):
                 raise ValueError("Missing path")
@@ -169,8 +166,6 @@ def reader_args(tokens: list[str]):
         else:
             paths.append(item)
         i += 1
-    # cat -n means number lines, not limit! It is rejected above when not numeric.
-    # A numeric limit only has its intended meaning for head/tail/Get-Content.
     if name in {"cat", "less", "more", "type"} and limit is not None:
         raise ValueError("Unsupported reader option")
     return paths, offset, limit, tail
@@ -179,11 +174,8 @@ def reader_args(tokens: list[str]):
 def shell_request(command: str, root: Path, cwd: Path, budget: dict) -> dict:
     if not isinstance(command, str) or len(command) > 64000:
         raise ValueError("Invalid command")
-    # Preserve backslashes in Windows/PowerShell literals; strip paired quotes only.
     windows = bool(re.search(r"\b[A-Za-z]:\\|\b(?:Get-Content|gc)\b", command, re.I))
     lex = shlex.shlex(command, posix=not windows, punctuation_chars=";&|<>\n")
-    # Newlines separate commands; comments must not consume that separator.
-    # This remains a conservative literal-command parser, not a shell evaluator.
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
     lex.commenters = ""
@@ -250,7 +242,6 @@ def host_output(host: str, row: dict) -> dict:
     if host == "generic":
         return row
     if row["decision"] != "deny":
-        # Empty output for Claude/Codex leaves their normal permissions untouched.
         return {"permission": "allow"} if host == "cursor" else {}
     message = MESSAGE if row["code"] not in {"invalid_request", "outside_project", "not_regular_file"} else (
         "I/O Delegation: cannot validate this read (" + row["code"] + "). "
@@ -261,12 +252,37 @@ def host_output(host: str, row: dict) -> dict:
                                     "permissionDecisionReason": message}}
 
 
+def audit_event(root, payload, row, host):
+    """Observe actual host-shaped invocations; not a proof of universal enforcement."""
+    import os
+    # Installer preflights and generic tests must not certify a host session.
+    if host == 'generic' or not isinstance(payload, dict) or not payload.get('session_id'):
+        return
+    directory = root / '.io-delegation-hooks'
+    path = directory / 'events.jsonl'
+    if directory.is_symlink() or path.is_symlink():
+        return
+    # Only an installed runtime may record events. Do not create unrelated host state.
+    if not (directory / 'policy.json').is_file():
+        return
+    event = {'host_event': True, 'host': host, 'component': 'io-delegation-read-guard',
+             'code': row['code'], 'covered': row['covered'], 'decision': row['decision'],
+             'would_block': row['would_block']}
+    encoded = (json.dumps(event, ensure_ascii=True) + '\n').encode('utf-8')
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(fd, encoded)
+    finally:
+        os.close(fd)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", choices=["generic", "claude-code", "codex", "cursor"], default="generic")
     parser.add_argument("--root", required=True)
     parser.add_argument("--policy")
     args = parser.parse_args(argv)
+    root = payload = None
     try:
         raw = sys.stdin.buffer.read(MAX_INPUT + 1)
         if len(raw) > MAX_INPUT:
@@ -274,13 +290,18 @@ def main(argv=None) -> int:
         root = Path(args.root).resolve(strict=True)
         if not root.is_dir():
             raise ValueError("Root must be a directory")
-        row = evaluate(json.loads(raw), root, policy_from(args.policy))
+        payload = json.loads(raw)
+        row = evaluate(payload, root, policy_from(args.policy))
     except (OSError, ValueError, TypeError, KeyError, OverflowError):
         row = {**verdict("invalid_request", True, True), "decision": "deny", "mode": "enforce"}
+    if root is not None:
+        try:
+            audit_event(root, payload, row, args.host)
+        except OSError:
+            pass  # Failure to record is never reported as verified execution.
     output = host_output(args.host, row)
     if output:
         print(json.dumps(output, ensure_ascii=True, allow_nan=False))
-    # Metadata only, no paths, commands, source text, environment or credentials.
     print(json.dumps({"component": "io-delegation-read-guard", **row}), file=sys.stderr)
     return 0
 
