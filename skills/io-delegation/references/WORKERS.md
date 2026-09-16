@@ -1,66 +1,25 @@
-# Workers configurados y medibles
+# Worker transports and compatibility
 
-Esta integración conecta `io_delegate.py` con un auxiliar real. Una skill instalada o un hook que bloquea una lectura NO configuran un modelo por sí solos.
+## Runtime contract
 
-## Inicio en Windows con la sesión de Codex existente
+Use the MCP tools that are actually registered. The efficient v0.4 service is `io_context`: local `search` and `extract`, plus `semantic_query` only with an explicitly approved configuration. See [CONTEXT_MCP.md](CONTEXT_MCP.md).
 
-Desde la rama `codex-io-delegation-ab`:
+Do not start `python io_delegate.py` from the principal's restricted shell. The old Windows failure occurred before that process could start. A successful direct worker smoke is not a successful Codex-to-MCP boundary test.
 
-```powershell
-cd D:\io-delegation-skill-ab
-git pull --ff-only
-python benchmarks\codex-ab\setup_worker.py --repo D:\landing-kuatrometric --adapter codex-cli --worker-model gpt-5.6-luna --approve-worker
-```
+## Existing v0.3 integration
 
-`--approve-worker` autoriza el adaptador elegido y UNA consulta real con un archivo sintético. Consume cuota del modelo. El script no envía el proyecto durante esa prueba, no copia credenciales, no cambia configuración global y no crea cuentas. Primero comprueba versión, flags y estado de autenticación de la CLI. Un fallo detiene el proceso antes del A/B.
+`worker_mcp.py`, `verify_worker_mcp.py`, and old manifests remain as compatibility controls. Their `io_delegation.bulk_read` reads full selected files. Their receipts are tied to that code/configuration; they do not certify the v0.4 context service. Historical results are not overwritten or reclassified.
 
-El script crea una carpeta nueva bajo `benchmarks/codex-ab/local-runs/` con configuración local, logs, `worker-smoke.json` y, solo si pasó, `manifest.worker.json`. Imprime el comando exacto para ejecutar la comparación. `--run` permite ejecutar esa comparación después de que pase la prueba; por defecto son dos tareas adicionales (baseline y worker obligatorio), una repetición cada una. Nada borra los resultados anteriores.
+The CLI runner `io_delegate.py` remains an operator command and test fixture interface, NOT an instruction for the principal inside MCP. Existing command and Chat Completions adapters remain supported.
 
-El identificador de modelo es un parámetro. El ejemplo usa el que funcionó en el equipo del usuario; no garantiza disponibilidad universal. Un worker con el MISMO modelo no es necesariamente más barato. Usar esfuerzo `low` tampoco garantiza ahorro ni calidad. Primero se comprueba la integración; después se mide eficiencia.
+## Authorization and backend selection
 
-## Qué comprueba la prueba previa
+The operator chooses the executable/model/endpoint in a reviewed configuration. `approved: true` is required for inference. Remote HTTP destinations require explicit `allow_remote: true` and HTTPS. Keys are referenced by environment variable name. Do not copy ChatGPT credentials, alter ACLs or fall back to another provider.
 
-1. La CLI reconoce los flags necesarios y existe autenticación utilizable.
-2. Una llamada al worker devuelve un valor aleatorio de un archivo sintético, con evidencia literal.
-3. El contrato, la cobertura y el hash del archivo son válidos.
-4. Se registró una invocación y una respuesta aceptada, con input/output observables.
+`codex-cli` reuses the existing normal login in a separate read-only ephemeral turn. `chat-completions` provides a minimal inference transport using the supplied messages without launching an agent. A new provider is not automatically configured or approved. Lower effort or a different model does not guarantee lower cost or equal quality.
 
-`worker-smoke.json` vincula el resultado al hash de la configuración y al código del ejecutor. Si cambian, el benchmark exige repetir únicamente la prueba previa. No es una certificación de seguridad ni de calidad general.
+## Accounting
 
-## Aislamiento y límites
+Attempts, dispatches, responses, rejected evidence and unknown consumption are separate. A timeout after dispatch is not free. Local extraction and exact cache hits make no inference calls. Provider cache hits remain a subset of input tokens, not a local-result cache. Native Codex subagents are separate and can make total accounting incomplete.
 
-`codex-cli` usa una conversación nueva, efímera, con directorio temporal; recibe el corpus por stdin, no la conversación del principal ni el repositorio como cwd. Reutiliza el login donde ya existe. Usa `read-only`, aprobación `never`, sin búsqueda web, shell ni multiagente habilitados por este adaptador. Rechaza resultados si el stream muestra herramientas. No se pasan flags YOLO ni se omite la confianza de hooks.
-
-Esto no equivale a una sandbox universal ni a borrar todo el contexto administrado por el cliente. Herramientas, configuración administrada, autenticación y políticas del proveedor siguen dependiendo de la instalación. Los flags se contrastaron con documentación oficial; la versión real del usuario se verifica mediante `--help` antes de inferencia.
-
-No hay fallback de proveedor ni reintentos automáticos. El límite de llamadas del ejemplo es cuatro por workspace y solo se ejecuta un auxiliar a la vez. Un lock dejado por una interrupción bloquea nuevas llamadas hasta revisión; no se borra a ciegas.
-
-## Otros transportes
-
-Siguen disponibles `command` y `chat-completions`. El segundo admite un servidor loopback existente, por ejemplo LM Studio, pero no instala ni carga modelos. Para usarlo hay que elegir `--adapter chat-completions`, el `--worker-model` real y el endpoint correcto. Los destinos remotos requieren un `--config` explícitamente aprobado con HTTPS y `allow_remote: true`. Las claves se leen de la variable de entorno declarada, nunca se embeben en comandos ni se publican.
-
-## Registro que no depende de un recorte de la terminal
-
-Cada llamada escribe metadatos en `.io-delegation/worker-events.jsonl`, incluso si el modelo falla después. No se registran código fuente, prompts, rutas de corpus, comandos ni credenciales. Los eventos llevan `call_id` y secuencia para deduplicar:
-
-`worker_attempt → worker_dispatched → worker_response → worker_completed`
-
-Los errores terminan con `worker_error`. Un intento rechazado antes de invocar tiene cero llamadas. Un timeout después de invocar tiene consumo desconocido salvo que el proveedor haya reportado usage. Respuestas rechazadas por evidencia, JSON o truncamiento cuentan en el consumo conocido. No se convierten en gratis.
-
-El contador `worker_calls` ahora cuenta despachos, no solamente respuestas. `worker_attempts`, `worker_responses`, `worker_accepted`, `worker_failures` y `worker_usage_unknown_calls` distinguen las etapas. Los subagentes nativos no son estos workers; si aparecen y no se puede atribuir su consumo, el costo del sistema queda incompleto.
-
-## No confundir pruebas
-
-- `required`: prueba de integración; exige al menos un `bulk-read` aceptado. Es deliberadamente forzada, NO evidencia de activación económicamente óptima.
-- `optional`: prueba de enrutamiento; el agente puede usar un parser o lectura breve sin delegar. Cero llamadas puede ser correcto.
-- `disabled`: control sin auxiliares configurados por el benchmark.
-
-El A/B con worker no instala hooks por defecto: primero separa la conexión al auxiliar de la confianza de hooks. Los brazos anteriores con hooks siguen disponibles; sin registros de ejecución del anfitrión se marcan como no comparables para esa intervención. Un registro del hook no certifica cobertura de todas las herramientas o lecturas.
-
-## Referencias consultadas
-
-- Codex no interactivo: https://learn.chatgpt.com/docs/non-interactive-mode
-- Configuración: https://learn.chatgpt.com/docs/config-file/config-reference
-- Hooks y confianza: https://learn.chatgpt.com/docs/hooks
-
-Pruebas offline usan stubs y procesos reales, no facturación ni sesiones autenticadas. La prueba real debe ejecutarse en el equipo donde está Codex.
+`required` is only an integration test. Efficiency comparisons use baseline vs deterministic MCP vs the same MCP with an optional semantic worker. Keep the main model, permissions, task, commit and validators fixed.

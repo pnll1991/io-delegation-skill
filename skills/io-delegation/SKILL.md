@@ -1,41 +1,24 @@
 ---
 name: io-delegation
-description: Delega consultas factuales sobre código extenso o generación repetitiva a un worker aprobado con contexto separado. Prioriza herramientas deterministas y lecturas dirigidas; no actives un modelo adicional por rutina. Conserva depuración, arquitectura, seguridad y edición exacta en el principal.
+description: Retrieve compact evidence through the configured MCP tools. Prefer deterministic search/extract; use an approved semantic worker only for interpretation of selected fragments. Never delegate by file size alone.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # I/O Delegation
 
-Optimizá el trabajo terminado correctamente, no el número de llamadas. Para una búsqueda o extracción que resuelve un parser local, no invoques un worker.
+Use only tools actually advertised by this session. Do not search guessed global skill paths, start worker launchers in the shell, install dependencies or change permissions.
 
-## Elegí la ruta
+With the `io_context` MCP server:
+- `search`: bounded literal matches in explicit permitted files/globs; no model.
+- `extract`: static HTML fields, JSON pointers or source ranges; batch compatible fields/files; no model.
+- `semantic_query`: interpretation of explicit source selections, only when this tool is advertised. A worker is never required for routine extraction. Prefer a single narrow query or grouped related questions.
 
-Usá búsqueda determinista o lectura por rango primero. No imprimas una línea minificada entera: preferí `rg --files`, `rg -l` o `scripts/bounded_search.py --root . --paths archivo --text símbolo`. El último limita la salida y declara coincidencias omitidas.
+Send paths/selectors, not whole file contents. Results contain sources, coverage, omitted content and references. `partial`, `missing`, `insufficient_context`, `budget_exceeded` and `error` are not complete answers. A missing value is not an absence claim about an entire repository. Expand only the identified missing scope and within budget.
 
-Para hechos dispersos en archivos extensos, usá `bulk-read` cuando exista un adaptador explícitamente aprobado y el resultado acotado pueda reducir el trabajo total. No cargues primero el corpus en el principal para luego delegarlo. El runner lee los archivos elegidos. No envíes repositorios completos, secretos ni datos personales.
+Verify evidence that supports decisions. The main agent retains debugging, architecture, security and final edits. A literal match proves location, not semantic correctness. Do not first read an entire corpus and then ask a worker to read it again.
 
-La depuración, causalidad, arquitectura, concurrencia, pagos, seguridad y modificación de código existente quedan en el principal, con evidencia original. Una cita literal verifica localización, no corrección semántica.
+The legacy `io_delegation.bulk_read` tool is usable only when advertised; it reads full files and is a compatibility/integration path, not the efficient default. Do not launch Python as a fallback when MCP is unavailable. Stop and report transport failures without retries, provider changes or sandbox changes.
 
-## Conectá el worker explícitamente
-
-Instalar esta skill o sus hooks NO configura ni inicia un worker. Se necesita un JSON aprobado y una prueba directa exitosa. No crees proveedores, apruebes configuraciones ni copies credenciales automáticamente. Ver [WORKERS.md](references/WORKERS.md) solo para configurar o diagnosticar.
-
-En el benchmark actualizado, la configuración está en `.io-delegation/worker.local.json`. Usá el ejecutable Python verificado que indique el entorno; no ensayes lanzadores repetidamente.
-
-```text
-python RUTA_SKILL/scripts/io_delegate.py bulk-read --root . --config .io-delegation/worker.local.json --paths src/a.py src/b.py --question "¿Qué funciones escriben registros y con qué llamadas?"
-```
-
-`RUTA_SKILL` significa la ruta real de la carpeta de esta skill. El runner admite `codex-cli`, `command` y `chat-completions`; no cambia entre ellos al fallar. `codex-cli` abre un hilo independiente, efímero, sin historial del principal, con sandbox de solo lectura. Usar el mismo modelo NO garantiza menor costo.
-
-Verificá `status`, cobertura, evidencia literal y hash. Ante `insufficient_context`, evidencia inválida, timeout o fuentes modificadas, no inventes una respuesta: ampliá una consulta acotada solo si compensa o continuá con lectura dirigida. No recurses ni evadas el presupuesto.
-
-## Generación y cierre
-
-`code-write` exige referencia, especificación cerrada y destino nuevo; guarda un candidato en `.io-delegation/candidates/`, nunca lo aplica ni ejecuta. Validá y revisá antes de promoverlo. No cambies permisos, instales dependencias, hagas commits ni publiques por tu cuenta.
-
-Los intentos, despachos, respuestas y errores se registran en `.io-delegation/worker-events.jsonl` sin código ni secretos. El consumo desconocido no es cero. No declares ahorro sin comparar calidad, tokens principales y del worker, tiempo y precios reales.
-
-Los hooks solo controlan herramientas cubiertas: no disparan modelos automáticamente ni garantizan ahorro. No los eludas ni desactives. Consultá [ENFORCEMENT.md](references/ENFORCEMENT.md) para cobertura y confianza del cliente. Un hook instalado no equivale a uno ejecutado.
+[Setup and migration](references/CONTEXT_MCP.md) are for the user/operator, not instructions to repeat during tasks. Installing a skill does not connect a worker. Report total principal plus worker usage and task quality; never infer savings from model activation alone.
