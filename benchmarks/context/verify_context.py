@@ -59,8 +59,8 @@ def verify(output,model='gpt-5.6-luna',config=None,live=False):
             prompt=('Call io_context.semantic_query exactly once with selections [{"path":"probe.txt","select":{"kind":"lines","start":1,"end":1}}] '
                     'and question "What is the value of VALUE? Cite the assignment literally and include the value in fact." '
                     'Answer only its value. Do not read files, use shell, memory or other tools. Stop on tool failure, no retry.')
-        cmd=[exe,'exec','--json','--skip-git-repo-check','-C',str(root),'-s','workspace-write','-m',model,
-             '-c','model_reasoning_effort="medium"','-c','features.shell_tool=false','-c','features.unified_exec=false',
+        cmd=[exe,'exec','--json','--ephemeral','--ignore-user-config','--skip-git-repo-check','-C',str(root),'-s','workspace-write','-m',model,
+             '-c','model_reasoning_effort="medium"','-c','web_search="disabled"','-c','features.shell_tool=false','-c','features.unified_exec=false',
              '-c','features.multi_agent=false','-c','features.memories=false',*args,'-']
         (output/'command.json').write_bytes(encoded(cmd)+b'\n')
         cp=run_process(cmd,cwd=root,payload=prompt.encode(),timeout=300,max_output=2_000_000)

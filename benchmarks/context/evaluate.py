@@ -172,7 +172,7 @@ def run(manifest,out,live=False,executor=None):
     pinned=dict(manifest,base_commit=sha);write(out/'manifest.snapshot.json',pinned)
     write(out/'validator-hashes.json',frozen)
     write(out/'environment.json',dict(python=sys.version,platform=sys.platform,context_code=implementation_hash(),
-        configuration='current-user, not clean-room',synthetic_driver=executor is not None))
+        configuration='isolated benchmark via --ignore-user-config; managed defaults may still apply',synthetic_driver=executor is not None))
     if not live:
         # Execute real local tools/initialization only; not an authenticated boundary receipt.
         for i,t in enumerate(manifest['tasks']):
@@ -198,12 +198,14 @@ def run(manifest,out,live=False,executor=None):
             try:
                 audit=rd/'audit';audit.mkdir()
                 prompt=task['prompt']+'\nPreserve unrelated files; do not use native subagents or change permissions.'
-                cmd=codex+['exec','--json','-C',str(wt),'-s','workspace-write','-m',manifest['model'],
-                    '-c','model_reasoning_effort='+json.dumps(manifest.get('reasoning_effort','medium'))]
+                cmd=codex+['exec','--json','--ephemeral','--ignore-user-config','-C',str(wt),'-s','workspace-write','-m',manifest['model'],
+                    '-c','model_reasoning_effort='+json.dumps(manifest.get('reasoning_effort','medium')),
+                    '-c','web_search="disabled"','-c','features.multi_agent=false','-c','features.memories=false']
                 if arm!='baseline':
                     config=manifest.get('worker_config') if arm=='semantic-optional' else None
                     cmd+=codex_arguments(wt,audit,task.get('allow_prefixes',[]),task.get('allow_files',[]),config)
-                    prompt+='\nMCP io_context provides local search/extract; use these for exact fields instead of improvising scripts.'
+                    scope_hint='prefixes='+','.join(task.get('allow_prefixes',[]))+'; files='+','.join(task.get('allow_files',[]))
+                    prompt+='\nMCP io_context approved source scope: '+scope_hint+'. If the task names an exact source path, call extract directly with that path; do not search to rediscover it and do not use . or output paths. Use search only when localization is actually needed. For exact HTML/JSON fields prefer one extract call, not one call per field.'
                     if config:prompt+=' semantic_query is optional over explicit selected fragments only; do not call it for routine deterministic extraction.'
                 else:prompt+='\nUse local tools; no external auxiliary workers.'
                 write(rd/'command.json',cmd+['-']);(rd/'prompt.txt').write_text(prompt,encoding='utf-8')

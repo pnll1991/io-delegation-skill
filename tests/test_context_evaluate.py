@@ -76,6 +76,15 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(m['tasks'][0]['prompt'],t['prompt']);self.assertEqual(m['worker_config'],str(cfg))
         with self.assertRaises(ValueError):migrate_manifest.migrate(source,self.base/'migrated.json')
 
+    def test_live_command_ignores_user_config(self):
+        seen=[]
+        def capture(argv,**kw):
+            seen.append(list(argv));return self.synthetic_executor(argv,**kw)
+        manifest=json.loads(json.dumps(self.manifest))
+        manifest['arms']=['baseline'];manifest['tasks']=[manifest['tasks'][0]]
+        rows=evaluate.run(manifest,self.base/'isolated-live',True,capture)
+        self.assertEqual(len(rows),1);self.assertIn('--ignore-user-config',seen[0]);self.assertIn('--ephemeral',seen[0])
+
     def test_default_preflight_no_inference(self):
         def forbidden(*a,**kw):raise AssertionError('model called')
         self.assertEqual(evaluate.run(self.manifest,self.base/'plan',executor=forbidden),[])

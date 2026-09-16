@@ -18,7 +18,7 @@ from worker_mcp import relative_name, PROTOCOLS, MAX_RPC_BYTES, reject_links
 import io_delegate as delegate
 
 SERVER = 'io_context'
-VERSION = '0.4.0'
+VERSION = '0.4.1'
 MAX_RESULT_BYTES = 24_000
 
 
@@ -112,30 +112,34 @@ class ContextService:
 
 
 def tools(service):
-    paths = dict(type='array', minItems=1, maxItems=128, items=dict(type='string'))
-    projection = dict(type='object', properties={
-        'kind': dict(type='string', enum=['html', 'json', 'lines', 'span']),
-        'fields': dict(type='array', items=dict(type='string')),
-        'pointers': dict(type='array', items=dict(type='string')),
-        'start': dict(type='integer'), 'end': dict(type='integer')},
-        required=['kind'], additionalProperties=False)
-    result = [dict(name='search', description='Local literal search or file listing (omit needle) in permitted paths/globs. Bounded excerpts; no model calls.',
+    paths = dict(type='array', minItems=1, maxItems=128, uniqueItems=True,
+                 items=dict(type='string', description='Relative permitted path or scoped glob. Never use . or output paths; if the task names data/page.html, use that exact path.'))
+    def shape(kind, properties, required):
+        return dict(type='object', properties=dict(kind=dict(type='string', enum=[kind]), **properties),
+                    required=['kind', *required], additionalProperties=False)
+    projection = dict(oneOf=[
+        shape('html', dict(fields=dict(type='array', minItems=1, maxItems=4, uniqueItems=True,
+                                      items=dict(type='string', enum=list(ops.HTML_FIELDS)))), ['fields']),
+        shape('json', dict(pointers=dict(type='array', minItems=1, maxItems=16, uniqueItems=True, items=dict(type='string'))), ['pointers']),
+        shape('lines', dict(start=dict(type='integer', minimum=1), end=dict(type='integer', minimum=1)), ['start','end']),
+        shape('span', dict(start=dict(type='integer', minimum=0), end=dict(type='integer', minimum=1)), ['start','end'])])
+    result = [dict(name='search', description='Local literal search or permitted file listing. If the task already names a source file, do not search to rediscover it; call extract directly. Never use . or output paths. Bounded excerpts; no model calls.',
         inputSchema=dict(type='object', properties=dict(paths=paths, needle=dict(type='string'),
             max_matches=dict(type='integer', minimum=1, maximum=100), window=dict(type='integer', minimum=0, maximum=256)),
             required=['paths'], additionalProperties=False),
         annotations=dict(readOnlyHint=True, destructiveHint=False, openWorldHint=False)),
-        dict(name='extract', description='Local static HTML fields, JSON pointers or explicit lines/spans across permitted files. Batch with projections (up to 8), or one projection. No model; missing/partial scope is explicit.',
+        dict(name='extract', description='Local exact extraction. For static HTML fields use only title, h1, canonical, description. For JSON use pointers; lines/spans require start/end. If the task names a file, use that exact path. Batch up to 8 projections. No model calls.',
         inputSchema=dict(type='object', properties=dict(paths=paths, projection=projection,
                              projections=dict(type='array', minItems=1, maxItems=8, items=projection)),
                          required=['paths'], additionalProperties=False),
         annotations=dict(readOnlyHint=True, destructiveHint=False, openWorldHint=False))]
 
     if service.engine:
-        selector = dict(type='object', properties=dict(
-            kind=dict(type='string', enum=['lines','span','literal','python_symbol']),
-            start=dict(type='integer'), end=dict(type='integer'), name=dict(type='string'),
-            needle=dict(type='string'), window=dict(type='integer',minimum=0,maximum=1024),
-            max_regions=dict(type='integer',minimum=1,maximum=12)), required=['kind'], additionalProperties=False)
+        selector = dict(oneOf=[
+            shape('lines', dict(start=dict(type='integer',minimum=1), end=dict(type='integer',minimum=1)), ['start','end']),
+            shape('span', dict(start=dict(type='integer',minimum=0), end=dict(type='integer',minimum=1)), ['start','end']),
+            shape('literal', dict(needle=dict(type='string',minLength=1,maxLength=500), window=dict(type='integer',minimum=0,maximum=1024), max_regions=dict(type='integer',minimum=1,maximum=12)), ['needle']),
+            shape('python_symbol', dict(name=dict(type='string',minLength=1,maxLength=160)), ['name'])])
         result.append(dict(name='semantic_query',
             description='Optional interpretation over explicit fragments only. Prefer local extract for exact fields. One question OR up to four related questions; no whole-file fallback. Returns literal evidence and partial coverage.',
             inputSchema=dict(type='object', properties=dict(

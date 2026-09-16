@@ -145,6 +145,16 @@ class LocalTests(unittest.TestCase):
     def test_tools_only_local_when_unconfigured(self):
         self.assertEqual([t['name'] for t in tools(self.service)],['search','extract'])
 
+    def test_tool_schema_guides_valid_projection_shapes(self):
+        extract_tool=next(t for t in tools(self.service) if t['name']=='extract')
+        variants=extract_tool['inputSchema']['properties']['projection']['oneOf']
+        by_kind={v['properties']['kind']['enum'][0]:v for v in variants}
+        self.assertEqual(set(by_kind),{'html','json','lines','span'})
+        self.assertEqual(by_kind['html']['properties']['fields']['items']['enum'],['title','h1','canonical','description'])
+        self.assertEqual(by_kind['html']['required'],['kind','fields'])
+        self.assertEqual(by_kind['json']['required'],['kind','pointers'])
+        self.assertEqual(by_kind['lines']['required'],['kind','start','end'])
+
     def test_stdio_real_server(self):
         cmd=[sys.executable,'-I',str(ROOT/'skills/io-delegation/scripts/context_mcp.py'),'--root',str(self.root),'--audit-root',str(self.audit),'--allow-prefix','src']
         requests=[dict(jsonrpc='2.0',id=1,method='initialize',params={}),dict(jsonrpc='2.0',id=2,method='tools/call',params=dict(name='extract',arguments=dict(paths=['src/page.html'],projection=dict(kind='html',fields=['title']))))]
