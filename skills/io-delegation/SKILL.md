@@ -31,6 +31,16 @@ Sin auxiliar: buscá símbolos, leé fragmentos y trabajá directamente. Sin ter
 
 Un inventario factual auxiliar puede ayudar en una tarea sensible, pero nunca sustituye el análisis crítico ni autoriza cambios. Antes de delegar, probá localizar con búsqueda. El tamaño es una señal, no una orden: más de 350 líneas acumuladas invita a evaluar; menos de 350 no impide delegar múltiples lecturas costosas. Medí el caso real. Un archivo minificado también requiere mirar bytes.
 
+### Router Jev opcional
+
+Si el proyecto tiene una configuración TypeSafe revisada y aprobada, podés usar `scripts/decision_router.py` **solo después de localizar archivos y solo en la zona gris** donde la tabla anterior no alcanza para elegir con claridad entre herramienta determinista, lectura dirigida, `bulk-read` o razonamiento principal.
+
+No llames al router para una búsqueda obvia, una lectura pequeña, un bug que ya requiere depuración directa, seguridad, lógica crítica o una edición exacta. El router agrega una llamada remota y no debe convertirse en una ceremonia para cada lectura.
+
+Pasale la tarea explícita, los archivos ya localizados y, si están disponibles, cantidad de resultados de búsqueda y símbolos conocidos. El router envía a TypeSafe el texto de la tarea y metadatos agregados del corpus; no envía contenido fuente ni nombres de archivo. Si devuelve `current_rules`, falla, no está configurado o tiene baja confianza, seguí con las reglas locales de esta sección.
+
+Una recomendación `bulk_read` no crea ni autoriza un worker: verificá que exista un auxiliar aprobado y recién entonces ejecutá la delegación normal. Una recomendación `principal` significa conservar lectura, razonamiento y cambios en el agente principal.
+
 No delegues si el costo del auxiliar más coordinación, verificación y reintentos supera el trabajo directo. No multipliques agentes, no recurses la delegación y no cargues archivos que el agente principal ya tiene solo para producir un resumen.
 
 ## 3. Prepará una tarea cerrada
@@ -55,7 +65,7 @@ Guardá el resultado como candidato fuera del árbol activo. No lo vuelques ente
 
 Promové el candidato al destino únicamente después de validar y dentro de la autorización original. No sobrescribas archivos, instales dependencias, ejecutes scripts desconocidos, hagas commits o publiques automáticamente.
 
-## 5. Aplicación con el script opcional
+## 5. Aplicación con los scripts opcionales
 
 En los ejemplos, sustituí `RUTA_SKILL` por la carpeta real que contiene este `SKILL.md`; no es una variable especial de ningún agente. Las rutas de datos son relativas a `--root`. Corré los comandos desde el proyecto o indicá su raíz explícitamente. Usá `python3` o `py -3` si ese es el lanzador disponible.
 
@@ -66,13 +76,23 @@ python RUTA_SKILL/scripts/io_delegate.py bulk-read --root . --config worker.loca
 python RUTA_SKILL/scripts/io_delegate.py code-write --root . --config worker.local.json --spec "Generá tests de las ramas A y B usando la API provista y las assertions de la referencia" --reference tests/test_existing.py --paths src/service.py --target tests/test_service.py
 ```
 
-`inspect` y `--dry-run` no llaman a un modelo. `code-write` exige un destino nuevo y crea `.io-delegation/candidates/<destino>`; no aplica el archivo. Las métricas salen por stderr y el resultado compacto por stdout. Una llamada sin configuración no activa otro proveedor.
+Para probar el router Jev sin enviar nada a TypeSafe:
 
-Leé [ADAPTERS.md](references/ADAPTERS.md) solo para configurar o cambiar transporte; [PLAYBOOK.md](references/PLAYBOOK.md) para clasificación y ejemplos; [VALIDATION.md](references/VALIDATION.md) para evaluar calidad y costo; [SOURCES.md](references/SOURCES.md) para procedencia y diferencias con la inspiración original. No cargues todos los recursos de antemano.
+```text
+python RUTA_SKILL/scripts/decision_router.py --root . --config .io-delegation-router.json --task "Localizá dónde se inicializan workers" --operation exploration --paths src/router.py src/worker.py --dry-run
+```
+
+Quitá `--dry-run` solo después de revisar la configuración y el estado que se enviará. Si la API key está configurada, la salida incluye `route`, `model_route`, `confidence`, probabilidades, señales de delegación/razonamiento y uso reportado por TypeSafe. Una respuesta por debajo de `min_confidence` devuelve `route: current_rules`.
+
+`inspect` y los modos `--dry-run` no llaman a un modelo. `code-write` exige un destino nuevo y crea `.io-delegation/candidates/<destino>`; no aplica el archivo. Las métricas salen por stderr y el resultado compacto por stdout. Una llamada sin configuración no activa otro proveedor.
+
+Leé [ADAPTERS.md](references/ADAPTERS.md) solo para configurar o cambiar transporte; [PLAYBOOK.md](references/PLAYBOOK.md) para clasificación y ejemplos; [VALIDATION.md](references/VALIDATION.md) para evaluar calidad y costo; [SOURCES.md](references/SOURCES.md) para procedencia y diferencias con la inspiración original. Para configurar o evaluar el router Jev, consultá [`../../docs/TYPESAFE_ROUTER.md`](../../docs/TYPESAFE_ROUTER.md). No cargues todos los recursos de antemano.
 
 ## 6. Fallos y cierre
 
 Ante contexto insuficiente, JSON inválido, evidencia ausente, truncamiento, timeout o fuentes modificadas: descartá el resultado. Como máximo hacé una nueva consulta corregida y más pequeña si sigue siendo conveniente; después resolvé con lectura dirigida. El script no reintenta automáticamente.
+
+Si el router Jev falla, no reintentes en bucle ni lo conviertas en requisito para continuar: usá la tabla local de la sección 2. Registrá su ruta solo como una señal experimental hasta contar con una calibración suficiente.
 
 Registrá brevemente ruta elegida, fuentes, validaciones y limitaciones relevantes. No inventes ahorro ni muestres contadores estimados como facturación real. Separá tokens del principal, tokens del auxiliar, costo monetario y tiempo total. Sin medición comparativa, el ahorro es desconocido.
 
@@ -80,6 +100,6 @@ Registrá brevemente ruta elegida, fuentes, validaciones y limitaciones relevant
 
 El paquete incluye un motor común `scripts/read_guard.py` y un instalador opcional de hooks para Claude Code, Codex y Cursor. No son requisitos del núcleo. Distinguí instrucciones solas, observación y bloqueo de las herramientas cubiertas; instalar un hook no demuestra que el anfitrión lo haya ejecutado.
 
-Ante un bloqueo, usá búsqueda, un rango explícito o un auxiliar aprobado cuando convenga. No cambies de herramienta para cargar el mismo archivo completo ni desactives el control. Sin auxiliar, continuá por fragmentos; las decisiones y ediciones siguen en el principal. Un offset sin límite no evita el presupuesto. No actives hooks ni cambies sus umbrales sin autorización.
+Ante un bloqueo, usá búsqueda, un rango explícito o un auxiliar aprobado cuando convenga. Si el router Jev está configurado y la ruta sigue siendo ambigua después de localizar, podés consultarlo antes de elegir. No cambies de herramienta para cargar el mismo archivo completo ni desactives el control. Sin auxiliar, continuá por fragmentos; las decisiones y ediciones siguen en el principal. Un offset sin límite no evita el presupuesto. No actives hooks ni cambies sus umbrales sin autorización.
 
 Consultá [ENFORCEMENT.md](references/ENFORCEMENT.md) solo para instalar, diagnosticar o verificar la integración. El control no cubre todos los programas, herramientas o rutas de carga de contexto: no es una sandbox ni garantiza ahorro. Los benchmarks publicados de 0.1.0 no miden estos hooks.
