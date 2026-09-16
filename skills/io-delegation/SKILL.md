@@ -86,7 +86,7 @@ Quitá `--dry-run` solo después de revisar la configuración y el estado que se
 
 `inspect` y los modos `--dry-run` no llaman a un modelo. `code-write` exige un destino nuevo y crea `.io-delegation/candidates/<destino>`; no aplica el archivo. Las métricas salen por stderr y el resultado compacto por stdout. Una llamada sin configuración no activa otro proveedor.
 
-Leé [ADAPTERS.md](references/ADAPTERS.md) solo para configurar o cambiar transporte; [PLAYBOOK.md](references/PLAYBOOK.md) para clasificación y ejemplos; [VALIDATION.md](references/VALIDATION.md) para evaluar calidad y costo; [SOURCES.md](references/SOURCES.md) para procedencia y diferencias con la inspiración original. Para configurar o evaluar el router Jev, consultá [`../../docs/TYPESAFE_ROUTER.md`](../../docs/TYPESAFE_ROUTER.md). No cargues todos los recursos de antemano.
+Leé [ADAPTERS.md](references/ADAPTERS.md) solo para configurar o cambiar transporte; [PLAYBOOK.md](references/PLAYBOOK.md) para clasificación y ejemplos; [VALIDATION.md](references/VALIDATION.md) para evaluar calidad y costo; [SOURCES.md](references/SOURCES.md) para procedencia y diferencias con la inspiración original. Para configurar o evaluar el router Jev, consultá [TYPESAFE_ROUTER.md](references/TYPESAFE_ROUTER.md). No cargues todos los recursos de antemano.
 
 ## 6. Fallos y cierre
 
