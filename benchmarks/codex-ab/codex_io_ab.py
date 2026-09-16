@@ -22,6 +22,7 @@ SCRIPTS = Path(__file__).resolve().parents[2] / 'skills/io-delegation/scripts'
 sys.path.insert(0, str(SCRIPTS))
 from worker_runtime import USAGE_KEYS, codex_stream, normalize_usage, run_process, usage_complete
 from io_delegate import load_config
+from worker_mcp import codex_mcp_arguments
 
 
 def read_json(path):
@@ -45,6 +46,53 @@ def engine_hash():
     for name in ('io_delegate.py', 'worker_runtime.py'):
         h.update((SCRIPTS/name).read_bytes())
     return h.hexdigest()
+
+
+def bridge_hash():
+    return hashlib.sha256((SCRIPTS/'worker_mcp.py').read_bytes()).hexdigest()
+
+
+def mcp_scope(task, strategy):
+    prefixes = strategy.get('worker_allow_prefixes', task.get('worker_allow_prefixes', []))
+    files = strategy.get('worker_allow_files', task.get('worker_allow_files', []))
+    if not prefixes and not files and task['id'] == 'kuatrometric-html-inventory':
+        prefixes = ['herramientas']
+    if not prefixes and not files:
+        raise ValueError('MCP requires explicit worker_allow_prefixes or worker_allow_files')
+    if not isinstance(prefixes, list) or not isinstance(files, list):
+        raise ValueError('MCP allowlists must be arrays')
+    from worker_mcp import relative_name
+    return [relative_name(x) for x in prefixes], [relative_name(x) for x in files]
+
+
+def check_boundary_receipt(strategy, config_path):
+    receipt_path = strategy.get('worker_boundary_receipt')
+    if not receipt_path:
+        raise ValueError('Direct worker smoke is not an MCP boundary test. Run verify_worker_mcp.py with this manifest first; no benchmark calls started.')
+    receipt = read_json(receipt_path)
+    if (receipt.get('ok') is not True or receipt.get('transport') != 'mcp' or
+        receipt.get('config_sha256') != config_hash(config_path) or
+        receipt.get('engine_sha256') != engine_hash() or
+        receipt.get('bridge_sha256') != bridge_hash()):
+        raise ValueError('MCP boundary receipt failed or stale. Run verify_worker_mcp.py first.')
+
+
+def transport_diagnostics(path):
+    events, _ = load_events(path)
+    launch_errors, mcp_ids = [], set()
+    for event in events:
+        item = event.get('item') or {}
+        if not isinstance(item, dict):
+            continue
+        if item.get('type') == 'mcp_tool_call' and item.get('server') == 'io_delegation' and item.get('tool') == 'bulk_read':
+            mcp_ids.add(item.get('id', 'unknown'))
+        if event.get('type') != 'item.completed' or item.get('type') != 'command_execution':
+            continue
+        command = item.get('command', '')
+        text = item.get('aggregated_output', '')
+        if 'python' in command.lower() and any(x in text.lower() for x in ('access is denied', 'unauthorizedaccess', 'commandnotfound')):
+            launch_errors.append({'item_id': item.get('id'), 'reason': 'worker_launcher_access_or_command_error'})
+    return {'worker_launch_errors': len(launch_errors), 'worker_mcp_tool_calls': len(mcp_ids), 'launch_errors': launch_errors}
 
 
 def config_hash(path):
@@ -202,10 +250,15 @@ def prepare(manifest, manifest_path, strategies, tasks):
             raise ValueError('Worker strategy must explicitly set worker_mode and worker_config')
         if s.get('worker_mode','disabled') not in ('disabled','optional','required'):
             raise ValueError('invalid worker_mode')
+        if s.get('worker_transport','mcp') not in ('mcp','shell'):
+            raise ValueError('worker_transport must be mcp or shell')
         if s.get('worker_mode','disabled') != 'disabled':
             path = Path(s.get('worker_config',''))
             if not path.is_file(): raise ValueError('Worker strategy without an approved worker_config')
             cfg = load_config(str(path))
+            if s.get('worker_transport','mcp') == 'mcp':
+                check_boundary_receipt(s, path)
+                for task in tasks: mcp_scope(task, s)
             receipt = read_json(s['worker_receipt'])
             if (receipt.get('ok') is not True or receipt.get('config_sha256') != config_hash(path)
                 or receipt.get('engine_sha256') != engine_hash()):
@@ -234,6 +287,9 @@ def aggregate(rows):
               if n and all(r.get('system_cost_usd') is not None for r in rs) else None,
           worker_attempts=sum(r['worker_attempts'] for r in rs),worker_calls=sum(r['worker_calls'] for r in rs),
           worker_accepted=sum(r['worker_accepted'] for r in rs),worker_failures=sum(r['worker_failures'] for r in rs),
+          task_successes=sum(r.get('task_success', r['acceptance_ok'] and r['regression_ok']) for r in rs),
+          worker_contract_failures=sum(not r.get('worker_contract_ok', True) for r in rs),
+          worker_launch_errors=sum(r.get('worker_launch_errors', 0) for r in rs),
           wall_seconds=sum(r['wall_seconds'] for r in rs)))
     return result
 
@@ -312,34 +368,54 @@ def main(argv=None):
                     if not ok: raise ValueError('Strategy setup failed; see setup.json')
                 mode=strategy.get('worker_mode','disabled')
                 worker_cfg=None
+                transport=strategy.get('worker_transport','mcp') if mode!='disabled' else 'disabled'
+                audit=rd/'worker-audit'
+                if transport=='mcp': audit.mkdir()
                 if mode!='disabled':
                     worker_cfg=load_config(strategy['worker_config'])
                     # Deliberately keep approved config outside the commit, under ignored runtime.
-                    shutil.copy2(strategy['worker_config'],telemetry/'worker.local.json')
+                    if transport=='shell':
+                        shutil.copy2(strategy['worker_config'],telemetry/'worker.local.json')
                 git(wt,'add','-A')
                 git(wt,'-c','user.name=Codex Benchmark','-c','user.email=bench@example.invalid',
                     'commit','--allow-empty','--no-gpg-sign','-m','benchmark setup')
                 setup_sha=git(wt,'rev-parse','HEAD').strip()
                 prompt='\n\n'.join(x for x in (strategy.get('prompt_prefix',''),task['user_prompt']) if x)
-                if mode!='disabled':
-                    prompt += ('\nAn approved worker is configured at .io-delegation/worker.local.json. '
-                               'Use .agents/skills/io-delegation/scripts/io_delegate.py with --config for factual extraction. '
-                               'Use this verified Python executable: '+sys.executable+'. '
-                               'No recursive delegation. Preserve existing files and verify evidence.')
+                if transport=='mcp':
+                    prompt += ('\nThe approved worker is an MCP tool: server io_delegation, tool bulk_read. '
+                               'Call that tool directly with paths and question. Do NOT run Python or io_delegate.py '
+                               'in the shell. Prefer 1-4 files per call, maximum 12 files and 12 findings. '
+                               'Do not read unrelated directories, global skills, or credentials. '
+                               'Verify evidence and preserve existing files. No recursive delegation.')
                     if mode=='required':
-                        prompt += '\nThis is a delegated-path test: make at least ONE successful bulk-read call, with literal evidence, before producing the answer.'
+                        prompt += ('\nFirst call bulk_read on ONE relevant source file with a narrow factual question. '
+                                   'A successful call is mandatory. If unavailable or a runtime/permission error occurs, '
+                                   'STOP immediately and report it. Do not debug launchers, change permissions, '
+                                   'or complete the whole task without the required worker.')
+                elif mode!='disabled':
+                    prompt += ('\nUse .agents/skills/io-delegation/scripts/io_delegate.py with '
+                               '--config .io-delegation/worker.local.json. Python: '+sys.executable+'.')
+                    if mode=='required':
+                        prompt += '\nMake one successful bulk-read call first. Stop on launcher or permission errors.'
                 else:
                     prompt += '\nDo not invoke external workers or native subagents in this control arm.'
                 cmd=[shutil.which('codex'),'exec','--json','-C',str(wt),'-s',strategy.get('sandbox','workspace-write')]
                 if strategy.get('model'): cmd+=['-m',strategy['model']]
                 for ov in strategy.get('config_overrides',[]): cmd+=['-c',str(ov)]
+                if transport=='mcp':
+                    prefixes, files = mcp_scope(task, strategy)
+                    cmd += codex_mcp_arguments(wt, strategy['worker_config'], audit, prefixes, files)
                 cmd+=['-']; write_json(rd/'command.json',cmd); (rd/'prompt.txt').write_text(prompt,encoding='utf-8')
                 started=time.monotonic(); cp=run_process(cmd,cwd=wt,payload=prompt.encode('utf-8'),timeout=task.get('max_wall_seconds',m.get('max_wall_seconds',900)),max_output=16_000_000)
                 wall=time.monotonic()-started
                 (rd/'codex.jsonl').write_bytes(cp.stdout); (rd/'codex.stderr.txt').write_bytes(cp.stderr)
-                journal=telemetry/'worker-events.jsonl'
+                journal=(audit/'.io-delegation/worker-events.jsonl') if transport=='mcp' else telemetry/'worker-events.jsonl'
                 if journal.exists(): shutil.copy2(journal,rd/'worker-events.jsonl')
                 u=usage_from_jsonl(rd/'codex.jsonl',rd/'worker-events.jsonl')
+                diagnosis=transport_diagnostics(rd/'codex.jsonl')
+                write_json(rd/'transport-diagnostic.json',diagnosis)
+                if transport=='mcp' and diagnosis['worker_mcp_tool_calls']>u['worker_attempts']:
+                    u['worker_accounting_complete']=False
                 aok,ar=check_commands(wt,task['acceptance'],900,ctx)
                 rok,rr=check_commands(wt,task['regression'],900,ctx)
                 write_json(rd/'acceptance.json',ar); write_json(rd/'regression.json',rr)
@@ -362,11 +438,17 @@ def main(argv=None):
                 system_usd=main_usd+worker_usd if main_usd is not None and worker_usd is not None and u['worker_accounting_complete'] else None
                 row=dict(task=task['id'],strategy=strategy['name'],repetition=rep,base_commit=pinned[task['id']],
                     valid_success=valid,comparison_valid=valid and u['principal_usage_complete'] and u['worker_accounting_complete'] and (not needs_hooks or hooks_observed),
-                    worker_mode=mode,worker_contract_ok=contract_ok,hooks_observed=hooks_observed,
+                    worker_mode=mode,worker_transport=transport,worker_contract_ok=contract_ok,hooks_observed=hooks_observed,
+                    task_success=cp.returncode==0 and aok and rok,
+                    failure_reason='worker_required_not_accepted' if not contract_ok else None,
+                    worker_launch_errors=diagnosis['worker_launch_errors'],worker_mcp_tool_calls=diagnosis['worker_mcp_tool_calls'],
                     codex_exit_code=cp.returncode,acceptance_ok=aok,regression_ok=rok,wall_seconds=wall,
                     raw_tokens=raw,system_raw_tokens=sysraw,principal_cost_usd=main_usd,worker_cost_usd=worker_usd,system_cost_usd=system_usd,**u)
                 rows.append(row); save_results(out,rows)
                 print(f'[{n}/{len(plan)}] {strategy["name"]} success={valid} input={u["input_tokens"]} worker_attempts={u["worker_attempts"]} worker_calls={u["worker_calls"]} worker_accepted={u["worker_accepted"]}',flush=True)
+                if mode=='required' and not contract_ok:
+                    print('Stopped: required worker was not accepted. Results preserved; no more benchmark calls.',flush=True)
+                    return 2
             finally:
                 # Captured reports remain outside the temporary worktree.
                 git(repo,'worktree','remove','--force',str(wt))
