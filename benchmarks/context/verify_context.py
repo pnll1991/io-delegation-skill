@@ -61,7 +61,7 @@ def verify(output,model='gpt-5.6-luna',config=None,live=False):
                     'Answer only its value. Do not read files, use shell, memory or other tools. Stop on tool failure, no retry.')
         cmd=[exe,'exec','--json','--ephemeral','--ignore-user-config','--disable','apps','--disable','plugins','--skip-git-repo-check','-C',str(root),'-s','workspace-write','-m',model,
              '-c','model_reasoning_effort="medium"','-c','web_search="disabled"','-c','features.shell_tool=false','-c','features.unified_exec=false',
-             '-c','features.multi_agent=false','-c','features.memories=false','-c','include_skill_instructions=false']
+             '-c','features.multi_agent=false','-c','features.memories=false','-c','skills.include_instructions=false']
         if sys.platform == 'win32': cmd += ['-c','windows.sandbox="elevated"']
         cmd += [*args,'-']
         (output/'command.json').write_bytes(encoded(cmd)+b'\n')

@@ -201,7 +201,7 @@ def run(manifest,out,live=False,executor=None):
                 cmd=codex+['exec','--json','--ephemeral','--ignore-user-config','--disable','apps','--disable','plugins','-C',str(wt),'-s','workspace-write','-m',manifest['model'],
                     '-c','model_reasoning_effort='+json.dumps(manifest.get('reasoning_effort','medium')),
                     '-c','web_search="disabled"','-c','features.multi_agent=false','-c','features.memories=false',
-                    '-c','include_skill_instructions=false']
+                    '-c','skills.include_instructions=false']
                 if sys.platform == 'win32': cmd += ['-c','windows.sandbox="elevated"']
                 if arm!='baseline':
                     config=manifest.get('worker_config') if arm=='semantic-optional' else None
