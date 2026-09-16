@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "approved": false,
+  "provider": "typesafe",
+  "model": "jev-latest",
+  "api_key_env": "TYPESAFE_API_KEY",
+  "timeout_seconds": 10,
+  "min_confidence": 0.75
+}

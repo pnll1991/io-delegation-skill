@@ -19,6 +19,8 @@ Send paths/selectors, not whole file contents. Results contain sources, coverage
 
 Verify evidence that supports decisions. The main agent retains debugging, architecture, security and final edits. A literal match proves location, not semantic correctness. Do not first read an entire corpus and then ask a worker to read it again.
 
+If an explicitly approved TypeSafe router config is present, use `scripts/decision_router.py` only after localization and only when the route is still ambiguous. `current_rules`, low confidence or router errors fall back to these local rules. A `bulk_read` recommendation does not itself authorize a worker. See [TYPESAFE_ROUTER.md](references/TYPESAFE_ROUTER.md) only when configuring or evaluating the router.
+
 The legacy `io_delegation.bulk_read` tool is usable only when advertised; it reads full files and is a compatibility/integration path, not the efficient default. Do not launch Python as a fallback when MCP is unavailable. Stop and report transport failures without retries, provider changes or sandbox changes.
 
 [Setup and migration](references/CONTEXT_MCP.md) are for the user/operator, not instructions to repeat during tasks. Installing a skill does not connect a worker. Report total principal plus worker usage and task quality; never infer savings from model activation alone.

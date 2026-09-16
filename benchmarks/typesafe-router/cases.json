@@ -1,0 +1,87 @@
+[
+  {
+    "id": "deterministic-file-count",
+    "task": "Confirm whether all selected files are Python files and count them. Use a deterministic inspection rather than reading source bodies.",
+    "expected": "deterministic",
+    "operation": "factual",
+    "paths": ["install.py", "install_hooks.py"]
+  },
+  {
+    "id": "targeted-max-files",
+    "task": "Find the constant that caps the number of explicit files and identify where that limit is enforced.",
+    "expected": "targeted_read",
+    "operation": "factual",
+    "paths": ["skills/io-delegation/scripts/io_delegate.py"],
+    "search_results": 2,
+    "known_symbols": 1
+  },
+  {
+    "id": "bulk-host-inventory",
+    "task": "Build a factual inventory of how Claude Code, Codex, and Cursor differ in skill installation, hook registration, and supported read tools. Return compact evidence, not architectural recommendations.",
+    "expected": "bulk_read",
+    "operation": "exploration",
+    "paths": [
+      "install.py",
+      "install_hooks.py",
+      "skills/io-delegation/SKILL.md",
+      "skills/io-delegation/references/ENFORCEMENT.md"
+    ],
+    "search_results": 19,
+    "known_symbols": 3
+  },
+  {
+    "id": "principal-worker-debug",
+    "task": "Determine why an approved worker might not activate during a large-code investigation and design the smallest safe fix without weakening validation or changing provider permissions.",
+    "expected": "principal",
+    "operation": "debugging",
+    "paths": [
+      "skills/io-delegation/SKILL.md",
+      "skills/io-delegation/scripts/io_delegate.py",
+      "skills/io-delegation/references/ADAPTERS.md",
+      "tests/test_io_delegate.py"
+    ],
+    "search_results": 11,
+    "known_symbols": 4
+  },
+  {
+    "id": "principal-security-review",
+    "task": "Review whether relaxing remote endpoint validation could expose source code or credentials and decide a safe patch. Treat this as a security-sensitive code change.",
+    "expected": "principal",
+    "operation": "security",
+    "paths": [
+      "skills/io-delegation/scripts/io_delegate.py",
+      "skills/io-delegation/scripts/decision_router.py",
+      "SECURITY.md"
+    ]
+  },
+  {
+    "id": "targeted-read-guard-decision",
+    "task": "Locate where the read guard converts its measured budget verdict into pass or deny and identify the fields involved.",
+    "expected": "targeted_read",
+    "operation": "factual",
+    "paths": ["skills/io-delegation/scripts/read_guard.py"],
+    "search_results": 3,
+    "known_symbols": 1
+  },
+  {
+    "id": "bulk-fallback-comparison",
+    "task": "Compare factual validation and fallback behavior across bulk-read transport, the read guard, and the Jev router. Return only compact differences supported by the selected files.",
+    "expected": "bulk_read",
+    "operation": "factual",
+    "paths": [
+      "skills/io-delegation/scripts/io_delegate.py",
+      "skills/io-delegation/scripts/read_guard.py",
+      "skills/io-delegation/scripts/decision_router.py",
+      "skills/io-delegation/references/VALIDATION.md"
+    ],
+    "search_results": 22,
+    "known_symbols": 5
+  },
+  {
+    "id": "deterministic-test-suite",
+    "task": "Run the repository offline unit test suite and report whether it passes. Do not inspect source broadly if the test runner can answer directly.",
+    "expected": "deterministic",
+    "operation": "factual",
+    "paths": [".github/workflows/tests.yml", "tests/test_package.py"]
+  }
+]
