@@ -198,9 +198,11 @@ def run(manifest,out,live=False,executor=None):
             try:
                 audit=rd/'audit';audit.mkdir()
                 prompt=task['prompt']+'\nPreserve unrelated files; do not use native subagents or change permissions.'
-                cmd=codex+['exec','--json','--ephemeral','--ignore-user-config','-C',str(wt),'-s','workspace-write','-m',manifest['model'],
+                cmd=codex+['exec','--json','--ephemeral','--ignore-user-config','--disable','apps','--disable','plugins','-C',str(wt),'-s','workspace-write','-m',manifest['model'],
                     '-c','model_reasoning_effort='+json.dumps(manifest.get('reasoning_effort','medium')),
-                    '-c','web_search="disabled"','-c','features.multi_agent=false','-c','features.memories=false']
+                    '-c','web_search="disabled"','-c','features.multi_agent=false','-c','features.memories=false',
+                    '-c','include_skill_instructions=false']
+                if sys.platform == 'win32': cmd += ['-c','windows.sandbox="elevated"']
                 if arm!='baseline':
                     config=manifest.get('worker_config') if arm=='semantic-optional' else None
                     cmd+=codex_arguments(wt,audit,task.get('allow_prefixes',[]),task.get('allow_files',[]),config)

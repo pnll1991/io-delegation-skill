@@ -84,6 +84,8 @@ class EvaluationTests(unittest.TestCase):
         manifest['arms']=['baseline'];manifest['tasks']=[manifest['tasks'][0]]
         rows=evaluate.run(manifest,self.base/'isolated-live',True,capture)
         self.assertEqual(len(rows),1);self.assertIn('--ignore-user-config',seen[0]);self.assertIn('--ephemeral',seen[0])
+        self.assertIn('include_skill_instructions=false',seen[0]);self.assertIn('apps',seen[0]);self.assertIn('plugins',seen[0])
+        if sys.platform == 'win32': self.assertIn('windows.sandbox="elevated"',seen[0])
 
     def test_default_preflight_no_inference(self):
         def forbidden(*a,**kw):raise AssertionError('model called')
