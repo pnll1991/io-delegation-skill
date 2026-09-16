@@ -33,28 +33,33 @@ BLOCKED_NAMES = ('.env*', '*.pem', '*.key', '*.p12', '*.pfx', 'id_rsa*',
 QUESTIONS = {
     "route": {
         "type": "choice",
-        "instructions": "Choose the most efficient I/O strategy for completing the task correctly.",
+        "instructions": (
+            "Choose one I/O route: principal for debugging/security/architecture/editing; "
+            "deterministic only when a non-source tool fully answers; targeted_read for one "
+            "or a few localized fragments; bulk_read for factual inventory/comparison across "
+            "3+ selected files or many matches. Search that only locates source is not deterministic."
+        ),
         "criteria": {
-            "deterministic": "A search, count, parser, compiler, test, or other deterministic tool can answer exactly without broad source reading.",
-            "targeted_read": "A small number of bounded source fragments should provide enough evidence for the main agent.",
-            "bulk_read": "A factual bounded extraction across multiple or large files would benefit from an isolated worker returning compact evidence.",
-            "principal": "The task requires main-agent reasoning or exact handling, such as debugging, architecture, security, critical logic, or editing existing content."
+            "deterministic": "A test, count, parser, compiler, metadata check, or exact tool result fully answers without interpreting source bodies.",
+            "targeted_read": "Source evidence is needed but already localized to one file or a few known symbols/fragments; a few bounded reads suffice.",
+            "bulk_read": "Factual extraction, inventory, or comparison spans 3+ selected files, many matches, or a large corpus and can return compact evidence.",
+            "principal": "Correctness depends on debugging, architecture, security judgment, causal reasoning, critical logic, or exact modification."
         }
     },
     "delegation_useful": {
         "type": "noul",
-        "instructions": "Would isolated bulk-read delegation materially reduce main-agent context while preserving enough evidence to answer the task?",
+        "instructions": "Would bulk-read materially reduce main-agent context for factual extraction across several files, many matches, or a large corpus?",
         "criteria": {
-            "true": "Delegation is likely to save main-agent context for a factual multi-file or large-corpus extraction.",
-            "false": "Direct deterministic tools, targeted reading, or main-agent reasoning are more appropriate."
+            "true": "Several files or many matches can be summarized as compact factual evidence without making the final reasoning-sensitive decision.",
+            "false": "The task is deterministic, localized to a few fragments, or requires main-agent reasoning or exact modification."
         }
     },
     "reasoning_required": {
         "type": "noul",
-        "instructions": "Does this task primarily require debugging, architecture, security judgment, causal reasoning, or exact editing rather than factual extraction?",
+        "instructions": "Does correctness primarily require debugging, architecture, security judgment, causal reasoning, or exact editing?",
         "criteria": {
-            "true": "The main agent should retain the work because correctness depends on reasoning or exact modification.",
-            "false": "The work is mainly localization or factual extraction."
+            "true": "The requested result is a diagnosis, design/security decision, causal conclusion, or exact modification.",
+            "false": "The work is deterministic inspection, localization, or factual extraction, including delegable cross-file comparison."
         }
     }
 }

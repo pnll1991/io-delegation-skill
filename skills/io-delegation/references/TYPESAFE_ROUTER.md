@@ -25,9 +25,15 @@ The router does **not** replace `read_guard.py`, `bulk-read`, the worker, or mai
 - [x] Validate Jev Choice/Noul outputs and probability ranges.
 - [x] Fall back to the existing skill rules when Choice confidence is below the configured threshold.
 - [x] Add offline tests with a mocked TypeSafe transport.
-- [ ] Run a live calibration set with a real early-access API key.
-- [ ] Compare route accuracy against the current hand-written rules.
+- [x] Run a live calibration set with a real early-access API key.
+- [x] Compare route accuracy against the current hand-written rules.
 - [ ] Measure worker activation rate, main-agent context, total tokens, latency, and retrabajo before considering default activation.
+
+## Live calibration · 16 September 2026
+
+Eight labeled cases cover deterministic tools, targeted reads, bulk factual extraction, debugging and security. After clarifying the route boundaries, the compact criteria were run three consecutive times against jev-latest: **24/24 route decisions matched the labels**, with zero low-confidence fallbacks, mean confidence **0.953**, mean latency **835 ms**, and **6,495 input + 750 output tokens per 8-case run**.
+
+The initial criteria scored 4/8 and never selected ulk_read; the failure was traced to overlapping route definitions. A more explicit draft reached 8/8 but used 7,807 input tokens per run. The final compact criteria preserved 8/8 across all three repeats while reducing Jev input by about 17% versus that draft. These are routing calibration results, not an end-to-end claim about worker quality or total session savings.
 
 ## Configure
 
