@@ -98,7 +98,7 @@ class LocalTests(unittest.TestCase):
             r=self.call('search',paths=['src/page.html'],**args);self.assertEqual(r['status'],'error')
 
     def test_spans_and_lines_use_same_normalized_text(self):
-        self.write('src/a.txt','á\r\nb\r\nc')
+        (self.root/'src/a.txt').write_bytes(('\u00e1\r\nb\r\nc').encode('utf-8'))
         r=self.call('extract',paths=['src/a.txt'],projection=dict(kind='lines',start=2,end=2))
         self.assertEqual(r['data'][0]['text'],'b\n');self.assertEqual(r['data'][0]['start'],2)
         r=self.call('extract',paths=['src/a.txt'],projection=dict(kind='span',start=0,end=1))
