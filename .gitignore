@@ -6,5 +6,6 @@ venv/
 .env.*
 *.local.json
 .io-delegation/
+.io-delegation-router.json
 .DS_Store
 benchmark-output/
