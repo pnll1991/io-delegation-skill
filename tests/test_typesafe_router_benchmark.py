@@ -36,6 +36,17 @@ class TypeSafeRouterBenchmarkTests(unittest.TestCase):
         self.assertEqual(report['summary']['cases'], len(report['results']))
         self.assertTrue(all(row['status'] == 'dry_run' for row in report['results']))
 
+    def test_output_parent_is_created(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / 'router.json'
+            config.write_text(json.dumps({"version": 1, "approved": True}))
+            output = Path(temp) / 'nested' / 'report.json'
+            with mock.patch.dict('os.environ', {}, clear=True):
+                code = bench.main(['--root', str(ROOT), '--config', str(config),
+                                   '--output', str(output), '--dry-run'])
+            self.assertEqual(code, 0)
+            self.assertTrue(output.is_file())
+
 
 if __name__ == '__main__':
     unittest.main()

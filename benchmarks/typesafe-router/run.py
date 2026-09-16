@@ -117,7 +117,9 @@ def main(argv=None) -> int:
         report = {'summary': summarize(rows, args.dry_run), 'results': rows}
         text = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
         if args.output:
-            Path(args.output).write_text(text, encoding='utf-8')
+            output = Path(args.output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(text, encoding='utf-8')
         else:
             sys.stdout.write(text)
         return 0
