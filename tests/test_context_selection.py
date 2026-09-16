@@ -70,7 +70,8 @@ class SelectionTests(unittest.TestCase):
     def test_job_no_random_ids_or_full_corpus(self):
         b=select([source('a.txt','value\nHIDDEN')],[dict(path='a.txt',select=dict(kind='lines',start=1,end=1))])
         job=selected_job(b,'What value?')
-        self.assertNotIn('HIDDEN',json.dumps(job));self.assertNotIn(b['sources']['s0']['sha256'],json.dumps(job))
+        payload=json.dumps(job)
+        self.assertNotIn('HIDDEN',payload);self.assertNotIn(b['sources']['s0']['sha256'],payload);self.assertNotIn('a.txt',payload);self.assertNotIn('s0',payload)
 
     def test_bad_shapes_and_empty_ok(self):
         b=select([source('a.txt','value')],[dict(path='a.txt',select=dict(kind='span',start=0,end=5))])

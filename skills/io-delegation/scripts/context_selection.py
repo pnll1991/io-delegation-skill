@@ -124,10 +124,12 @@ def selected_job(bundle, question):
     if not isinstance(question, str) or not question.strip() or len(question.encode('utf-8')) > 4000:
         raise ValueError('Question must contain 1..4000 UTF-8 bytes')
     # IDs and ordering are stable; no absolute temp path, call UUID or repeated hashes in the prompt.
-    files = [dict(path=f['ref'], content=f['content'], source=f['source'],
-                  start=f['start'], end=f['end']) for f in bundle['fragments']]
-    payload = dict(files=files, source_paths={k:v['path'] for k,v in bundle['sources'].items()},
-                   coverage=bundle['coverage'], task=question)
+    files = [dict(path=f['ref'], content=f['content'], start=f['start'], end=f['end'])
+             for f in bundle['fragments']]
+    selection = dict(scope='selected-fragments-only',
+                     notes=bundle['coverage']['notes'],
+                     omitted_matches=bundle['coverage']['omitted_matches'])
+    payload = dict(files=files, selection=selection, task=question)
     return dict(protocol='io-context/1', mode='bulk-read', selected_context=True, messages=[
         dict(role='system', content=SELECTED_PROMPT),
         dict(role='user', content=encoded(payload).decode('utf-8'))])
