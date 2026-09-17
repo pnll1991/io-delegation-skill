@@ -33,12 +33,15 @@ io-delegation.cmd setup --project "D:\\ruta\\al\\proyecto"
 ./io-delegation setup --project "/ruta/al/proyecto"
 ```
 
-`setup` detecta agentes compatibles, instala la skill, registra `io_context`, detecta un scope seguro, habilita Jev si `TYPESAFE_API_KEY` ya existe, deja el worker apagado salvo configuración explícita, instala el read guard en **observe** y ejecuta `doctor`.
+`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, habilita Jev si `TYPESAFE_API_KEY` existe, deja el worker apagado salvo configuración explícita, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
 
 ```bash
+io-delegation setup --project . --dry-run
 io-delegation status --project .
 io-delegation doctor --project .
 ```
+
+Los proyectos se pueden mover sin perder su identidad. Volvé a ejecutar `setup` después de moverlos o cambiar Python para refrescar metadatos y registro del host.
 
 Opciones comunes:
 
@@ -49,7 +52,19 @@ io-delegation setup --project . --worker-config /ruta/privada/worker.json
 io-delegation setup --project . --guard enforce
 ```
 
-Las credenciales reales no se escriben en el proyecto: la configuración MCP referencia variables de entorno. Ver [diseño V1](docs/PRODUCT_V1.md) e [instalación V1](docs/INSTALLATION_V1.md). El flujo manual anterior (`install.py`, runner y herramientas de compatibilidad) sigue disponible.
+Las credenciales reales no se escriben en el proyecto: la configuración MCP referencia variables de entorno. Codex usa configuración administrada a nivel usuario, Cursor un MCP global con `${workspaceFolder}` y Claude Code scope `user` cuando su CLI está disponible. Ver [diseño V1](docs/PRODUCT_V1.md) e [instalación V1](docs/INSTALLATION_V1.md). El flujo manual anterior (`install.py`, runner y herramientas de compatibilidad) sigue disponible.
+
+
+## Ciclo de vida
+
+```bash
+io-delegation remove --project . --dry-run
+io-delegation remove --project .
+io-delegation backups
+io-delegation restore ID --dry-run
+```
+
+La eliminación conserva settings ajenos y skills modificadas. Restore se detiene si el archivo cambió después, salvo `--force` revisado explícitamente.
 
 ## Control opcional de lecturas
 
@@ -61,7 +76,7 @@ La versión **0.2.0** incorpora la capa de control anterior a la herramienta. Un
 | Observación | Evalúa las lecturas y emite metadatos, pero no bloquea excesos de presupuesto. |
 | Bloqueo | Rechaza lecturas cubiertas que exceden el presupuesto y propone alternativas. |
 
-El setup V1 instala esta integración en modo `observe` por defecto. Para el flujo manual anterior:
+El setup V1.1 deja esta integración **apagada por defecto**. `observe` y `enforce` son opt-in. Para el flujo manual anterior:
 
 ```bash
 # Elegí claude-code, codex o cursor

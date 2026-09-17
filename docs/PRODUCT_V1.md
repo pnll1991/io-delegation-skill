@@ -67,11 +67,11 @@ By default setup:
 
 - detects supported agents
 - installs the self-contained skill
-- registers `io_context` as a project MCP server
+- registers one machine-local/global `io_context` MCP per host and resolves the active project at runtime
 - auto-detects a safe source scope
 - enables Jev only when `TYPESAFE_API_KEY` is already available
 - leaves the semantic worker off unless an approved config is supplied
-- installs the read guard in `observe` mode
+- leaves the read guard off unless explicitly requested
 - runs `doctor`
 
 The API key value is never written to generated configuration. Agent configs reference only its environment-variable name.
@@ -95,13 +95,18 @@ Implemented:
 - [x] Fall back safely when Jev or the worker is unavailable
 - [x] Add one-command `setup`
 - [x] Add `status` and real-MCP `doctor`
-- [x] Register Codex, Claude Code and Cursor project MCP configs
+- [x] Register portable/global MCP entries: Codex user config, Cursor global `${workspaceFolder}`, Claude user scope
 - [x] Store machine-local state/audits/configs outside the project
 - [x] Never persist the TypeSafe API-key value
-- [x] Default read guard to `observe` in product setup
+- [x] Keep read guard off by default; tracked hook configs require explicit override
 - [x] Add routing telemetry without source contents
 - [x] Back up changed agent configuration
 - [x] Refuse silent replacement of a modified installed skill
+- [x] Install a stable runtime under `~/.io-delegation/` so the distributor clone can move/disappear
+- [x] Give projects stable IDs that survive directory moves
+- [x] Refresh the registered Python executable on setup reruns
+- [x] Share one global MCP across multiple configured projects and remove it only after the last project
+- [x] Validate the global bootstrap in a real Codex session (`io_context.extract` -> `42`)
 
 Validation remaining before calling V1 generally useful:
 
@@ -113,9 +118,9 @@ Validation remaining before calling V1 generally useful:
 
 Distribution / UX follow-ups:
 
-- [ ] Add explicit `setup --dry-run` preview
-- [ ] Add uninstall / managed-config removal with backup restore guidance
-- [ ] Decide packaging path (`pipx`, standalone binary, or signed installer)
+- [x] Add explicit `setup --dry-run` preview with zero writes
+- [x] Add surgical `remove`, config snapshots, `backups` and guarded `restore`
+- [x] Keep the cross-agent repo CLI for beta; defer package distribution until dogfood proves utility
 - [ ] [#8](https://github.com/pnll1991/io-delegation-skill/issues/8) Test real Claude Code and Cursor authenticated sessions, not only MCP handshake
 - [ ] Evaluate a Cursor plugin package after the cross-agent CLI is stable
 - [ ] Add optional richer session report only if users need it; no dashboard-first work

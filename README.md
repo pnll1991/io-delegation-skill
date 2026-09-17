@@ -37,14 +37,17 @@ io-delegation.cmd setup --project "D:\\path\\to\\project"
 ./io-delegation setup --project "/path/to/project"
 ```
 
-Setup detects supported agents, installs the skill, registers the `io_context` MCP server, selects a safe project scope, enables Jev only when `TYPESAFE_API_KEY` is already available, leaves the semantic worker off unless explicitly configured, installs the read guard in **observe** mode, and runs `doctor`.
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, enables Jev only when `TYPESAFE_API_KEY` is available, leaves the semantic worker off unless explicitly configured, keeps the read guard **off by default**, and runs `doctor`.
 
-Check the installation at any time:
+Preview with zero writes, then inspect the installation at any time:
 
 ```bash
+io-delegation setup --project . --dry-run
 io-delegation status --project /path/to/project
 io-delegation doctor --project /path/to/project
 ```
+
+Project folders can be moved without changing their gateway identity. Rerun `setup` after a move or Python change to refresh metadata and host registration.
 
 To configure specific hosts or behavior:
 
@@ -55,8 +58,20 @@ io-delegation setup --project . --worker-config /private/worker.json
 io-delegation setup --project . --guard enforce
 ```
 
-Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
+Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP with `${workspaceFolder}`, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
 
+
+
+Lifecycle commands are surgical and preserve unrelated settings:
+
+```bash
+io-delegation remove --project . --dry-run
+io-delegation remove --project .
+io-delegation backups
+io-delegation restore BACKUP_ID --dry-run
+```
+
+Restore refuses to overwrite a config changed after I/O Delegation touched it unless `--force` is explicitly reviewed.
 ## Optional read enforcement
 
 Version **0.2.0** adds the third layer that instructions alone cannot provide: a pre-tool gate. The common Python engine checks source-text budgets locally; small host adapters translate decisions into the documented Claude Code, Codex and Cursor hook formats.
@@ -67,7 +82,7 @@ Version **0.2.0** adds the third layer that instructions alone cannot provide: a
 | Observe | Evaluate requests and record decision metadata without blocking budget violations. |
 | Enforce | Deny covered reads over budget and suggest search, a bounded range or an approved worker. |
 
-The V1 `io-delegation setup` command installs this integration in `observe` mode by default. For the manual/legacy path, register it explicitly:
+The V1.1 `io-delegation setup` command leaves this integration **off by default**. Enable `observe` or `enforce` explicitly. For the manual/legacy path, register it directly:
 
 ```bash
 # Choose your agent: claude-code, codex, or cursor
