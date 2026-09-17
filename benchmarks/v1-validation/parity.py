@@ -61,6 +61,8 @@ def load_lifecycles(sources):
 
 def lifecycle_status(lifecycles,required_hosts):
     rows={}; deviations=[]
+    if lifecycles is None:
+        return {host:None for host in required_hosts},deviations
     for host in required_hosts:
         value=(lifecycles or {}).get(host)
         if value is None:
