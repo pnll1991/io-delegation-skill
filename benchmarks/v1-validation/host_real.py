@@ -56,11 +56,11 @@ def host_validate_command(host,project,suite,output,model=None):
 
 def execute(host,worker,output,model=None):
     if host not in HOST_AGENT: raise ValueError('unsupported host')
+    output=Path(output).resolve()
+    if output.exists() and any(output.iterdir()): raise ValueError('output directory must be new/empty')
     worker=Path(worker).expanduser().resolve(strict=True)
     if not worker.is_file() or worker.is_symlink(): raise ValueError('worker config must be regular file')
     if not host_executable(host): raise ValueError(host+' CLI not installed')
-    output=Path(output).resolve()
-    if output.exists() and any(output.iterdir()): raise ValueError('output directory must be new/empty')
     suite=HERE/'host_suite.fixture.json'; started=time.time(); lifecycle={}
     error=None
     with tempfile.TemporaryDirectory(prefix='io-host-real-') as folder:
