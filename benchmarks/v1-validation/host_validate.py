@@ -291,7 +291,7 @@ def observed_worker(audit, before):
 
 def managed_claude_mcp_config(path):
     home=Path(os.environ.get('IO_DELEGATION_HOME',str(Path.home()/'.io-delegation'))).expanduser()
-    bootstrap=(home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
+    bootstrap=(home/'runtime/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
     definition={'mcpServers':{'io_context':{'type':'stdio','command':str(Path(sys.executable).resolve()),'args':[str(bootstrap)]}}}
     Path(path).write_text(json.dumps(definition,separators=(',',':'))+'\n',encoding='utf-8')
     return Path(path)
@@ -302,9 +302,9 @@ def managed_cursor_project_config(project):
     if mcp_path.exists() or cli_path.exists():
         raise ValueError('Cursor validation refuses to overwrite existing project config')
     home=Path(os.environ.get('IO_DELEGATION_HOME',str(Path.home()/'.io-delegation'))).expanduser()
-    bootstrap=(home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
+    bootstrap=(home/'runtime/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
     folder.mkdir(parents=True,exist_ok=True)
-    mcp={'mcpServers':{'io_context':{'type':'stdio','command':str(Path(sys.executable).resolve()),'args':[str(bootstrap),'--project',str(project)]}}}
+    mcp={'mcpServers':{'io_context':{'type':'stdio','command':str(Path(sys.executable).resolve()),'args':[str(bootstrap)]}}}
     cli={'version':1,'permissions':{'allow':['Mcp(io_context:*)'],'deny':['Shell(*)','Read(**)','Write(**)','WebFetch(*)']}}
     mcp_path.write_text(json.dumps(mcp,separators=(',',':'))+'\n',encoding='utf-8')
     cli_path.write_text(json.dumps(cli,separators=(',',':'))+'\n',encoding='utf-8')

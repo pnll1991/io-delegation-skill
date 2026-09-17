@@ -372,7 +372,7 @@ def update_codex_global(states, dry_run=False):
 
 def cursor_entry(states):
     command, bootstrap=runtime_command(); envs=union_env_names(states)
-    entry={'type':'stdio','command':command,'args':[bootstrap,'--project','${workspaceFolder}']}
+    entry={'type':'stdio','command':command,'args':[bootstrap]}
     if envs: entry['env']={name:f'${{env:{name}}}' for name in envs}
     return entry
 

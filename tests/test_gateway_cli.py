@@ -53,14 +53,15 @@ class GatewayCLITests(unittest.TestCase):
         code,text,err=self.cli('doctor','--project',str(self.project))
         self.assertEqual(code,0,err); self.assertIn('MCP handshake: search, extract, query',text)
 
-    def test_cursor_global_config_uses_workspace_variable(self):
+    def test_cursor_global_config_relies_on_workspace_cwd(self):
         code,text,err=self.cli('setup','--project',str(self.project),'--agent','cursor','--jev','off','--no-doctor')
         self.assertEqual(code,0,err)
         self.assertFalse((self.project/'.cursor/mcp.json').exists())
         row=gateway.read_json(self.host/'.cursor/mcp.json')
         entry=row['mcpServers']['io_context']
-        self.assertIn('${workspaceFolder}',entry['args'])
-        self.assertTrue(any(str(x).endswith('context_bootstrap.py') for x in entry['args']))
+        self.assertEqual(len(entry['args']),1)
+        self.assertTrue(str(entry['args'][0]).endswith('context_bootstrap.py'))
+        self.assertNotIn('${workspaceFolder}',json.dumps(entry))
 
     def test_secret_value_is_never_persisted(self):
         secret='TEST_SECRET_VALUE_ABC123'

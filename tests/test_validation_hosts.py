@@ -45,13 +45,14 @@ class HostValidationTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as folder:
                 base=Path(folder); project=base/'project'; project.mkdir()
-                home=base/'home'; bootstrap=home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py'
+                home=base/'home'; bootstrap=home/'runtime/io-delegation/scripts/context_bootstrap.py'
                 bootstrap.parent.mkdir(parents=True); bootstrap.write_text('pass\n',encoding='utf-8')
                 __import__('os').environ['IO_DELEGATION_HOME']=str(home)
                 paths=mod.managed_cursor_project_config(project)
                 mcp=json.loads(paths[0].read_text(encoding='utf-8'))
                 cli=json.loads(paths[1].read_text(encoding='utf-8'))
                 self.assertEqual(set(mcp['mcpServers']),{'io_context'})
+                self.assertEqual(mcp['mcpServers']['io_context']['args'],[str(bootstrap.resolve())])
                 self.assertEqual(cli['permissions']['allow'],['Mcp(io_context:*)'])
                 self.assertEqual(set(cli['permissions']['deny']),{'Shell(*)','Read(**)','Write(**)','WebFetch(*)'})
                 mod.cleanup_cursor_project_config(paths)
@@ -157,7 +158,7 @@ class HostValidationTests(unittest.TestCase):
     def test_managed_claude_mcp_config_contains_only_io_context(self):
         with tempfile.TemporaryDirectory() as folder:
             home=Path(folder)/'io-home'
-            bootstrap=home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py'
+            bootstrap=home/'runtime/io-delegation/scripts/context_bootstrap.py'
             bootstrap.parent.mkdir(parents=True); bootstrap.write_text('pass\n',encoding='utf-8')
             target=Path(folder)/'mcp.json'
             with patch.dict('os.environ',{'IO_DELEGATION_HOME':str(home)},clear=False):
