@@ -23,6 +23,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# Also works when loaded through importlib by tests or an embedding host.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from worker_runtime import Journal, TransportError, invoke_codex, normalize_usage, run_process, usage_complete
+
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 MAX_FILES = 12
 MAX_FILE_BYTES = 500_000
@@ -175,20 +179,32 @@ def load_config(path: str) -> dict[str, Any]:
     cfg = json.loads(raw)
     if not isinstance(cfg, dict) or cfg.get('approved') is not True:
         raise DelegateError('El usuario debe revisar y aprobar el adaptador antes de ejecutarlo.')
-    if cfg.get('adapter') not in {'command', 'chat-completions'}:
-        raise DelegateError('adapter debe ser command o chat-completions.')
+    if cfg.get('adapter') not in {'command', 'chat-completions', 'codex-cli'}:
+        raise DelegateError('adapter debe ser command, chat-completions o codex-cli.')
     timeout = cfg.get('timeout_seconds', 60)
     if (type(timeout) not in (int, float) or not math.isfinite(timeout)
             or not 0 < timeout <= 300):
         raise DelegateError('timeout_seconds debe estar entre 0 y 300, sin incluir 0.')
-    if cfg['adapter'] == 'command':
+    max_calls = cfg.get('max_calls_per_workspace')
+    if max_calls is not None and (type(max_calls) is not int or not 1 <= max_calls <= 100):
+        raise DelegateError('max_calls_per_workspace debe estar entre 1 y 100.')
+    if cfg['adapter'] == 'codex-cli':
+        model = cfg.get('model')
+        if not isinstance(model, str) or not model.strip() or any(x in model.upper() for x in ('YOUR_', 'REEMPLAZAR', '<', '>')):
+            raise DelegateError('Configurá un identificador de modelo real.')
+        if cfg.get('reasoning_effort', 'low') not in ('low', 'medium', 'high'):
+            raise DelegateError('reasoning_effort debe ser low, medium o high.')
+        executable = cfg.get('executable', 'codex')
+        if not isinstance(executable, str) or not executable.strip():
+            raise DelegateError('executable debe identificar la CLI instalada.')
+    elif cfg['adapter'] == 'command':
         argv = cfg.get('argv')
         if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
             raise DelegateError('argv debe ser una lista no vacía de argumentos de confianza.')
     else:
         endpoint(cfg)
         model = cfg.get('model')
-        if not isinstance(model, str) or not model.strip() or 'REEMPLAZAR' in model:
+        if not isinstance(model, str) or not model.strip() or any(x in model.upper() for x in ('REEMPLAZAR', 'YOUR_', '<', '>')):
             raise DelegateError('Configurá un identificador de modelo real.')
         field = cfg.get('token_limit_field', 'max_tokens')
         if field not in {'max_tokens', 'max_completion_tokens'}:
@@ -242,35 +258,36 @@ def usage_numbers(raw: Any) -> dict[str, int | None]:
     return values
 
 
-def invoke(job: dict[str, Any], cfg: dict[str, Any], root: Path) -> tuple[str, dict[str, Any]]:
+def invoke(job: dict[str, Any], cfg: dict[str, Any], root: Path, record=None) -> tuple[str, dict[str, Any]]:
+    record = record or (lambda *a, **kw: None)
     timeout = cfg.get('timeout_seconds', 60)
     payload = encode(job)
     if len(payload) > MAX_REQUEST_BYTES:
         raise DelegateError('Solicitud demasiado grande. Dividí la tarea; no se trunca.')
+    if cfg['adapter'] == 'codex-cli':
+        return invoke_codex(job, cfg, record)
     if cfg['adapter'] == 'command':
-        argv = [x.replace('{python}', sys.executable).replace('{skill}', str(SKILL_ROOT))
-                for x in cfg['argv']]
-        # Archivos temporales evitan cargar stdout/stderr sin límite en memoria.
-        # Un comando es de confianza: esto NO limita su acceso al sistema ni sus hijos.
-        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-            done = subprocess.run(argv, input=payload, stdout=stdout, stderr=stderr,
-                                  cwd=root, timeout=timeout, shell=False, check=False)
-            if done.returncode:
-                raise DelegateError(f'El adaptador falló (exit {done.returncode}); salida privada omitida.')
-            stdout.seek(0)
-            raw = stdout.read(MAX_RESPONSE_BYTES + 1)
-        if len(raw) > MAX_RESPONSE_BYTES:
-            raise DelegateError('Respuesta del adaptador demasiado grande.')
-        result = json.loads(raw)
+        argv = [x.replace('{python}', sys.executable).replace('{skill}', str(SKILL_ROOT)) for x in cfg['argv']]
+        cp = run_process(argv, cwd=root, timeout=timeout, payload=payload, max_output=MAX_RESPONSE_BYTES,
+                         on_start=lambda: record('worker_dispatched', adapter='command'))
+        if cp.timed_out:
+            raise TransportError('Timeout del adaptador')
+        if cp.oversized:
+            raise TransportError('worker_output_limit')
+        if cp.returncode:
+            raise TransportError(f'worker_command_failed (exit {cp.returncode})')
+        result = json.loads(cp.stdout)
+        usage = normalize_usage(result.get('usage') if isinstance(result, dict) else None)
+        record('worker_response', usage=usage, usage_complete=usage_complete(usage))
         if not isinstance(result, dict) or not isinstance(result.get('output'), str):
             raise DelegateError('El adaptador debe devolver JSON con output de tipo string.')
-        return result['output'], {'usage': usage_numbers(result.get('usage')),
-                                  'request_bytes': len(payload)}
+        if result.get('error'):
+            raise TransportError('worker_adapter_reported_error', usage)
+        return result['output'], {'usage': usage, 'request_bytes': len(payload)}
     body = {'model': cfg['model'], 'messages': job['messages'], 'stream': False}
     field = cfg.get('token_limit_field', 'max_tokens')
     is_reader = job['mode'] == 'bulk-read'
-    body[field] = cfg.get('reader_max_tokens' if is_reader else 'writer_max_tokens',
-                          1600 if is_reader else 4096)
+    body[field] = cfg.get('reader_max_tokens' if is_reader else 'writer_max_tokens', 1600 if is_reader else 4096)
     if cfg.get('temperature', 0.2) is not None:
         body['temperature'] = cfg.get('temperature', 0.2)
     payload = encode(body)
@@ -281,13 +298,16 @@ def invoke(job: dict[str, Any], cfg: dict[str, Any], root: Path) -> tuple[str, d
     if key_env:
         headers['Authorization'] = 'Bearer ' + os.environ[key_env]
     request = urllib.request.Request(endpoint(cfg), data=payload, headers=headers, method='POST')
-    # Sin proxies heredados, redirecciones ni cambios automáticos de proveedor.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    record('worker_dispatched', adapter='chat-completions', model=cfg['model'])
     with opener.open(request, timeout=timeout) as response:
         raw = response.read(MAX_RESPONSE_BYTES + 1)
     if len(raw) > MAX_RESPONSE_BYTES:
         raise DelegateError('Respuesta HTTP demasiado grande.')
     result = json.loads(raw)
+    usage = normalize_usage(result.get('usage') if isinstance(result, dict) else None)
+    # Capture billed usage BEFORE rejecting a malformed or truncated answer.
+    record('worker_response', usage=usage, usage_complete=usage_complete(usage))
     choices = result.get('choices') if isinstance(result, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         raise DelegateError('El endpoint no devolvió una respuesta Chat Completions válida.')
@@ -298,7 +318,7 @@ def invoke(job: dict[str, Any], cfg: dict[str, Any], root: Path) -> tuple[str, d
     output = message.get('content') if isinstance(message, dict) else None
     if not isinstance(output, str):
         raise DelegateError('El endpoint no devolvió contenido de texto.')
-    return output, {'usage': usage_numbers(result.get('usage')), 'request_bytes': len(payload)}
+    return output, {'usage': usage, 'request_bytes': len(payload)}
 
 
 def unwrap(text: str) -> str:
@@ -427,11 +447,35 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    start = time.monotonic()
+    journal = None
+    dispatched = False
+    response_seen = False
+    last_usage = normalize_usage(None)
+    def record(event, **values):
+        nonlocal dispatched, response_seen, last_usage
+        dispatched = dispatched or event == 'worker_dispatched'
+        if event == 'worker_response':
+            response_seen = True
+            last_usage = normalize_usage(values.get('usage'))
+        row = journal.emit(event, mode=args.command, **values)
+        # Keep the historical single worker_response on stderr; lifecycle lives on disk.
+        if event == 'worker_response':
+            emit(row, err=True)
     try:
         root = Path(args.root).resolve(strict=True)
         if not root.is_dir():
             raise DelegateError('--root debe ser un directorio.')
+        measuring = args.command != 'inspect' and not args.dry_run
+        if measuring:
+            journal = Journal(root)
+            record('worker_attempt')
+            journal.acquire()
+            if not args.config:
+                raise DelegateError('Sin adaptador configurado: usá lectura selectiva o --dry-run.')
+            cfg = load_config(args.config)
+            cap = cfg.get('max_calls_per_workspace')
+            if cap is not None and journal.dispatched_count() >= cap:
+                raise DelegateError('Presupuesto de llamadas agotado; no se invocó el worker.')
         names = list(args.paths)
         reference = target = None
         if args.command == 'code-write':
@@ -449,8 +493,7 @@ def main(argv: list[str] | None = None) -> int:
             total = sum(f['lines'] for f in files)
             emit({'files': manifest(files), 'total_lines': total,
                   'total_bytes': sum(f['bytes'] for f in files),
-                  'routing_hint': 'consider_bulk_read' if total > args.min_lines else 'targeted_read_first',
-                  'hint_only': True})
+                  'routing_hint': 'consider_bulk_read' if total > args.min_lines else 'targeted_read_first', 'hint_only': True})
             return 0
         task = args.question if args.command == 'bulk-read' else args.spec
         job = build_job(args.command, task, files, reference=reference, target=target)
@@ -461,35 +504,35 @@ def main(argv: list[str] | None = None) -> int:
                   'request_bytes': len(encode(job)), 'reference': reference, 'target': target,
                   'worker_called': False, 'source_content_emitted': False})
             return 0
-        if not args.config:
-            raise DelegateError('Sin adaptador configurado: usá lectura selectiva o --dry-run.')
-        cfg = load_config(args.config)
-        output, metrics = invoke(job, cfg, root)
-        # Registrar uso aunque falle luego el contrato: el proveedor pudo cobrar la llamada.
-        emit({'event': 'worker_response', 'mode': args.command,
-              'elapsed_ms': round((time.monotonic() - start) * 1000),
-              'corpus_bytes': sum(f['bytes'] for f in files),
-              'worker_output_bytes': len(output.encode('utf-8')), **metrics}, err=True)
+        output, metrics = invoke(job, cfg, root, record)
+        if not response_seen:
+            record('worker_response', usage=normalize_usage(metrics.get('usage')),
+                   usage_complete=usage_complete(normalize_usage(metrics.get('usage'))))
         unchanged(root, files)
         if args.command == 'bulk-read':
-            result = validate_summary(output, files)
+            result = validate_summary(output.lstrip('\ufeff'), files)
         else:
             result = save_candidate(root, target, output)
             result['sources'] = manifest(files)
+        record('worker_completed', accepted=result['status'] in ('ok', 'candidate_created'),
+               status=result['status'], semantic_verification='required', usage=last_usage)
         emit(result)
         return 0
-    except urllib.error.HTTPError as exc:
-        emit({'status': 'error', 'error': f'HTTP {exc.code}; cuerpo privado omitido.',
-              'action': 'Revisá endpoint, permisos y presupuesto; sin reintentos automáticos.'}, err=True)
-    except subprocess.TimeoutExpired:
-        emit({'status': 'error', 'error': 'Timeout del adaptador; no se acepta ningún resultado.',
-              'usage': 'unknown; el proveedor puede haber procesado la solicitud'}, err=True)
-    except (DelegateError, OSError, ValueError, TypeError, KeyError) as exc:
-        # Errores propios son descriptivos. Errores externos no deben filtrar rutas/cuerpo/keys.
-        message = str(exc) if isinstance(exc, DelegateError) else f'{type(exc).__name__}; detalle privado omitido.'
-        emit({'status': 'error', 'error': message,
-              'action': 'Acotá la tarea o continuá con lectura directa; no repitas a ciegas.'}, err=True)
-    return 2
+    except (DelegateError, TransportError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as exc:
+        code = exc.code if isinstance(exc, TransportError) else type(exc).__name__
+        message = str(exc) if isinstance(exc, (DelegateError, TransportError)) else code + '; detalle privado omitido.'
+        if journal:
+            try:
+                record('worker_error', code=code, dispatched=dispatched,
+                       usage=last_usage, usage_complete=usage_complete(last_usage) if dispatched else True)
+            except (OSError, ValueError):
+                message += ' Telemetría incompleta; no se puede atribuir costo cero.'
+        emit({'status': 'error', 'error': message, 'worker_dispatched': dispatched,
+              'action': 'Revisá la configuración o acotá la tarea. No hay reintentos ni cambio de proveedor automáticos.'}, err=True)
+        return 2
+    finally:
+        if journal:
+            journal.close()
 
 
 if __name__ == '__main__':
