@@ -49,7 +49,7 @@ The V1 MCP surface is intentionally small:
 - `extract`
 - `query`
 
-`semantic_query` remains for compatibility but is not part of the primary product story.
+Semantic inference is internal to `query`; no separate semantic MCP tool is exposed in V1.
 
 ## User workflow
 
