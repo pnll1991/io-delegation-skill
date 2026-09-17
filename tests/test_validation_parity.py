@@ -44,4 +44,24 @@ class ParityTests(unittest.TestCase):
         text=mod.markdown(result)
         self.assertIn('targeted_read',text); self.assertIn('worker=0',text)
 
+    def test_complete_lifecycle_is_required_when_supplied(self):
+        records={'codex':[row('codex')],'claude':[row('claude')],'cursor':[row('cursor')]}
+        lifecycle={host:{'host':host,'lifecycle':{phase:'pass' for phase in mod.LIFECYCLE_PHASES},'error':None}
+                   for host in mod.DEFAULT_HOSTS}
+        result=mod.summarize(records,lifecycles=lifecycle)
+        self.assertTrue(result['lifecycle_complete'])
+        self.assertEqual(result['critical_deviations'],0)
+
+    def test_missing_or_failed_lifecycle_is_critical(self):
+        records={'codex':[row('codex')],'claude':[row('claude')],'cursor':[row('cursor')]}
+        lifecycle={host:{'host':host,'lifecycle':{phase:'pass' for phase in mod.LIFECYCLE_PHASES},'error':None}
+                   for host in ('codex','claude')}
+        lifecycle['claude']['lifecycle']['security']='fail'
+        result=mod.summarize(records,lifecycles=lifecycle)
+        kinds=[item['kind'] for item in result['deviations']]
+        self.assertIn('lifecycle_failure',kinds)
+        self.assertIn('missing_lifecycle',kinds)
+        self.assertFalse(result['lifecycle_complete'])
+        self.assertGreater(result['critical_deviations'],0)
+
 if __name__=='__main__': unittest.main()
