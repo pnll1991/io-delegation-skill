@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Expand machine-local dogfood variables then invoke the reproducible runner."""
+"""Expand machine-local dogfood variables then invoke the resumable runner."""
 from __future__ import annotations
 
 import json
@@ -11,7 +11,7 @@ import tempfile
 
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
-import experiment
+import run as orchestrator
 
 ENV_RE=re.compile(r'\$\{([A-Z][A-Z0-9_]*)\}')
 
@@ -38,7 +38,7 @@ def main(argv=None):
     with tempfile.TemporaryDirectory(prefix='io-v1-manifest-') as folder:
         resolved=Path(folder)/'manifest.json'
         resolved.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-        return experiment.main([str(resolved),*argv[1:]])
+        return orchestrator.main([str(resolved),*argv[1:]])
 
 if __name__=='__main__':
     try: raise SystemExit(main())
