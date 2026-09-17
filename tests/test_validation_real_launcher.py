@@ -12,7 +12,8 @@ class RealLauncherTests(unittest.TestCase):
         out=mod.expand(value,{'REPO_ROOT':'/tmp/repo'})
         self.assertEqual(out['repo'],'/tmp/repo')
         self.assertEqual(out['cmd'][1],'/tmp/repo')
-        self.assertTrue(out['cmd'][0].endswith('benchmarks/v1-validation/validators.py'))
+        validator_path=out['cmd'][0].replace('\\','/')
+        self.assertTrue(validator_path.endswith('benchmarks/v1-validation/validators.py'))
 
     def test_missing_env_is_error(self):
         with self.assertRaisesRegex(ValueError,'MISSING_X'):
