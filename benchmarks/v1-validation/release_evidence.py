@@ -90,24 +90,41 @@ def causal_gate(rows,left,right,min_pairs,component):
                    'warnings':warnings}
 
 
+def activation_gate(value):
+    false_enables=value.get('false_enable_run_ids',[]) if isinstance(value,dict) else []
+    unexpected=value.get('unexpected_call_run_ids',[]) if isinstance(value,dict) else []
+    context_leaks=value.get('context_leak_run_ids',[]) if isinstance(value,dict) else []
+    schema=value.get('schema') if isinstance(value,dict) else None
+    passed=(schema=='io-context-activation-evidence/v1' and value.get('pass') is True)
+    return {
+        'pass':passed,'schema':schema,'pairs':value.get('pairs') if isinstance(value,dict) else None,
+        'false_enables':len(false_enables) if isinstance(false_enables,list) else None,
+        'unexpected_calls':len(unexpected) if isinstance(unexpected,list) else None,
+        'context_leaks':len(context_leaks) if isinstance(context_leaks,list) else None,
+    }
+
+
 def evaluate(args):
     dogfood=record.load(args.dogfood_records)
     jev=record.load(args.jev_records)
     worker=record.load(args.worker_records)
+    activation=read_json(args.activation)
     parity=read_json(args.parity)
     security=read_json(args.security)
     dogfood_report,dogfood_g=dogfood_gates(dogfood,args.dogfood_left,args.dogfood_right,args.small_overhead_pct,args.context_ratio)
     jev_report,jev_g=causal_gate(jev,args.jev_left,args.jev_right,args.min_jev_pairs,'jev')
     worker_report,worker_g=causal_gate(worker,args.worker_left,args.worker_right,args.min_worker_pairs,'worker')
+    activation_g=activation_gate(activation)
     parity_g={'pass':parity.get('critical_deviations')==0,'critical_deviations':parity.get('critical_deviations')}
     security_g={'pass':security.get('clean') is True,'secret_hits':len(security.get('secret_hits',[])),
                 'forbidden_event_fields':len(security.get('forbidden_event_fields',[])),
                 'malformed_jsonl':len(security.get('malformed_jsonl',[]))}
-    gates={**dogfood_g,'jev_causal_sample':jev_g,'worker_causal_sample':worker_g,
+    gates={**dogfood_g,'activation_gate':activation_g,'jev_causal_sample':jev_g,'worker_causal_sample':worker_g,
            'host_parity':parity_g,'security_audit':security_g}
     ready=all(item.get('pass') is True for item in gates.values())
     return {'schema':'io-context-release-evidence/v1','ready':ready,'gates':gates,
-            'artifacts':{'dogfood_paired':dogfood_report,'jev_paired':jev_report,'worker_paired':worker_report,
+            'artifacts':{'dogfood_paired':dogfood_report,'activation_schema':activation.get('schema'),
+                         'jev_paired':jev_report,'worker_paired':worker_report,
                          'parity_schema':parity.get('schema'),'security_schema':security.get('schema')}}
 
 
@@ -122,8 +139,9 @@ def markdown(result):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--dogfood-records',type=Path,required=True); p.add_argument('--jev-records',type=Path,required=True)
-    p.add_argument('--worker-records',type=Path,required=True); p.add_argument('--parity',type=Path,required=True); p.add_argument('--security',type=Path,required=True)
+    p.add_argument('--dogfood-records',type=Path,required=True); p.add_argument('--activation',type=Path,required=True)
+    p.add_argument('--jev-records',type=Path,required=True); p.add_argument('--worker-records',type=Path,required=True)
+    p.add_argument('--parity',type=Path,required=True); p.add_argument('--security',type=Path,required=True)
     p.add_argument('--dogfood-left',default='control'); p.add_argument('--dogfood-right',default='gateway-smart')
     p.add_argument('--jev-left',default='gateway-local'); p.add_argument('--jev-right',default='gateway-jev')
     p.add_argument('--worker-left',default='direct-selected'); p.add_argument('--worker-right',default='semantic-worker')
