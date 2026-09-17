@@ -105,9 +105,9 @@ Implemented:
 
 Validation remaining before calling V1 generally useful:
 
-- [ ] Dogfood at least 20 real tasks across 3+ repositories
+- [ ] [#5](https://github.com/pnll1991/io-delegation-skill/issues/5) Dogfood at least 20 real tasks across 3+ repositories
 - [ ] Include large-repo, multi-file audit, debugging/security and small-task negative controls
-- [ ] Repeat key A/B task families at least 5 times to characterize variance
+- [ ] [#6](https://github.com/pnll1991/io-delegation-skill/issues/6) Repeat key A/B task families at least 5 times to characterize variance
 - [ ] Measure selected bytes/context returned in addition to token totals
 - [ ] Record false routing decisions and unnecessary worker calls
 
@@ -116,7 +116,7 @@ Distribution / UX follow-ups:
 - [ ] Add explicit `setup --dry-run` preview
 - [ ] Add uninstall / managed-config removal with backup restore guidance
 - [ ] Decide packaging path (`pipx`, standalone binary, or signed installer)
-- [ ] Test real Claude Code and Cursor authenticated sessions, not only MCP handshake
+- [ ] [#8](https://github.com/pnll1991/io-delegation-skill/issues/8) Test real Claude Code and Cursor authenticated sessions, not only MCP handshake
 - [ ] Evaluate a Cursor plugin package after the cross-agent CLI is stable
 - [ ] Add optional richer session report only if users need it; no dashboard-first work
 
