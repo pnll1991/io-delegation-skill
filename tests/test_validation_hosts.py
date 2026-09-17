@@ -71,6 +71,30 @@ class HostValidationTests(unittest.TestCase):
     def test_host_mcp_checks(self):
         self.assertEqual(mod.mcp_check_command('claude')[1:4], ['mcp', 'get', 'io_context'])
         self.assertEqual(mod.mcp_check_command('cursor')[1:4], ['mcp', 'list-tools', 'io_context'])
+        self.assertEqual(mod.mcp_check_command('codex')[1:4], ['mcp', 'list', '--json'])
+
+    def test_codex_command_is_read_only_and_exclusive_mcp(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base=Path(folder); project=base/'project'; marker=project/'.io-delegation/project.json'
+            marker.parent.mkdir(parents=True)
+            marker.write_text(json.dumps({'project_id':'abc123abc123'}),encoding='utf-8')
+            home=base/'home'; runtime=home/'runtime/io-delegation/scripts/context_bootstrap.py'
+            runtime.parent.mkdir(parents=True); runtime.write_text('pass\n',encoding='utf-8')
+            states=home/'projects'; states.mkdir(parents=True)
+            (states/'abc123abc123.json').write_text(json.dumps({
+                'project_id':'abc123abc123','audit_root':str(base/'audit'),
+                'credential_env_names':['WORKER_KEY']}),encoding='utf-8')
+            with patch.dict('os.environ',{'IO_DELEGATION_HOME':str(home)},clear=False):
+                command=mod.build_command('codex',project,'hello',model='gpt-test')
+            text=' '.join(map(str,command))
+            self.assertIn('--ignore-user-config',command)
+            self.assertIn('--sandbox',command); self.assertIn('read-only',command)
+            self.assertIn('features.shell_tool=false',text)
+            self.assertIn('features.multi_agent=false',text)
+            self.assertIn('mcp_servers.io_context.command=',text)
+            self.assertIn('mcp_servers.io_context.enabled_tools=',text)
+            self.assertIn('WORKER_KEY',text)
+            self.assertEqual(command[-1],'-')
 
     def test_suite_needs_four_cases(self):
         with self.assertRaises(ValueError):
