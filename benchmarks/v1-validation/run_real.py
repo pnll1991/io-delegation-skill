@@ -30,11 +30,31 @@ def expand(value,env=None):
     return value
 
 
+def inject_scope_flags(data):
+    """Make post-run static validators see exactly the task's authorized corpus."""
+    if not isinstance(data,dict): return data
+    for task in data.get('tasks',[]):
+        prefixes=list(task.get('allow_prefixes',[])); files=list(task.get('allow_files',[]))
+        for command in task.get('validator',[]):
+            if not isinstance(command,list) or not command: continue
+            if not any(str(item).replace('\\','/').endswith('/validators.py') for item in command):
+                continue
+            if '--scope-prefix' in command or '--scope-file' in command:
+                continue
+            for prefix in prefixes: command.extend(['--scope-prefix',str(prefix)])
+            for path in files: command.extend(['--scope-file',str(path)])
+    return data
+
+
+def prepare(value,env=None):
+    return inject_scope_flags(expand(value,env))
+
+
 def main(argv=None):
     argv=list(argv if argv is not None else sys.argv[1:])
     if not argv: raise ValueError('manifest required')
     manifest=Path(argv[0]).resolve(strict=True)
-    data=expand(json.loads(manifest.read_text(encoding='utf-8-sig')))
+    data=prepare(json.loads(manifest.read_text(encoding='utf-8-sig')))
     with tempfile.TemporaryDirectory(prefix='io-v1-manifest-') as folder:
         resolved=Path(folder)/'manifest.json'
         resolved.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
