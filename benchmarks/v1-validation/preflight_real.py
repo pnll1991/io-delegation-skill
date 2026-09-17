@@ -27,7 +27,11 @@ def validator_namespace(command,root):
         return [args[i+1] for i,x in enumerate(args[:-1]) if x==flag]
     mode=one('--mode')
     if not mode: raise ValueError('validator command missing --mode')
-    return argparse.Namespace(root=str(root),output=one('--output'),mode=mode,literal=one('--literal'),ext=many('--ext'),field=many('--field'),prefix=one('--prefix'))
+    return argparse.Namespace(
+        root=str(root),output=one('--output'),mode=mode,literal=one('--literal'),
+        ext=many('--ext'),field=many('--field'),prefix=one('--prefix'),
+        scope_prefix=many('--scope-prefix'),scope_file=many('--scope-file'),
+    )
 
 
 def run(manifest):
@@ -51,6 +55,10 @@ def run(manifest):
                 if not output or output in outputs: raise ValueError('task outputs must be unique')
                 outputs.add(output)
                 ns=validator_namespace(command,roots[task['repo']])
+                if sorted(ns.scope_prefix)!=sorted(task.get('allow_prefixes',[])):
+                    raise ValueError(f"validator prefix scope mismatch for {task['id']}")
+                if sorted(ns.scope_file)!=sorted(task.get('allow_files',[])):
+                    raise ValueError(f"validator file scope mismatch for {task['id']}")
                 gold=validators.expected(ns)
                 digest=hashlib.sha256(json.dumps(validators.normalize(gold),ensure_ascii=False,sort_keys=True).encode()).hexdigest()
                 golds[task['id']]={'sha256':digest,'mode':ns.mode}
@@ -63,7 +71,7 @@ def run(manifest):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__); p.add_argument('manifest',type=Path); a=p.parse_args(argv)
-    data=run_real.expand(json.loads(a.manifest.read_text(encoding='utf-8-sig')))
+    data=run_real.prepare(json.loads(a.manifest.read_text(encoding='utf-8-sig')))
     print(json.dumps(run(data),ensure_ascii=False,indent=2)); return 0
 
 if __name__=='__main__':
