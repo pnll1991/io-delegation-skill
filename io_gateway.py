@@ -850,7 +850,7 @@ def command_doctor(args):
     add('audit directory','pass' if Path(state['audit_root']).is_dir() else 'fail',state['audit_root'])
     try:
         tools=mcp_probe(root,state); needed={'search','extract','query'}
-        add('MCP handshake','pass' if needed<=set(tools) else 'fail',', '.join(tools))
+        add('MCP handshake','pass' if set(tools)==needed and len(tools)==len(needed) else 'fail',', '.join(tools))
     except Exception as exc: add('MCP handshake','fail',str(exc))
     if state.get('router_config'):
         try:
