@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "seed": 20260918,
+  "repetitions": 5,
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "timeout_seconds": 600,
+  "router_config": "${IO_ROUTER_CONFIG}",
+  "worker_config": "${IO_WORKER_CONFIG}",
+  "repositories": {
+    "camara": {"path": "${CAMARA_REPO}", "commit": "02f124a6938a4e8864dffc98fb12253f55267d75"},
+    "kuatrometric": {"path": "${KUATROMETRIC_REPO}", "commit": "943f27329d850ff7af3f3e336fa0c6503033d8f4"},
+    "steroid": {"path": "${STEROID_REPO}", "commit": "0fcbffd1660668062156600a0098cc0a9927fa97"}
+  },
+  "arms": [
+    {"name": "gateway-local", "gateway": true, "jev": false, "worker": true, "activation": "auto"},
+    {"name": "gateway-jev", "gateway": true, "jev": true, "worker": true, "activation": "auto"}
+  ],
+  "tasks": [
+    {
+      "id": "jev-targeted-package",
+      "repo": "camara",
+      "family": "targeted",
+      "prompt": "Create only benchmark-output/jev-targeted-package.json. This is a routing experiment: after locating the exact evidence, call io_context.query exactly once on package.json using a narrow literal selection around the build script and operation factual. Do not call query more than once. Then return JSON {fields:{\"scripts.build\":VALUE}} exactly. Do not modify existing files.",
+      "task_hint": "repository targeted build entry point investigation",
+      "allow_files": ["package.json"],
+      "expected_route": "targeted_read",
+      "validator": [["{python}", "{validation_root}/validators.py", "--root", ".", "--output", "benchmark-output/jev-targeted-package.json", "--mode", "package-fields", "--field", "scripts.build"]]
+    },
+    {
+      "id": "jev-multifile-ipc",
+      "repo": "steroid",
+      "family": "multi-file-factual",
+      "prompt": "Create only benchmark-output/jev-multifile-ipc.json. First use io_context.search within the approved src scope to locate ipcMain.handle. Then call io_context.query exactly once over up to 12 relevant matching files, with literal selectors for ipcMain.handle and operation factual. Do not call query more than once. Final JSON keys are literal, files[{path,occurrences}], file_count, occurrences for literal ipcMain.handle across approved .ts files. Do not modify existing files.",
+      "task_hint": "multi-file IPC handler factual audit across repository modules",
+      "allow_prefixes": ["src"],
+      "expected_route": "bulk_read",
+      "validator": [["{python}", "{validation_root}/validators.py", "--root", ".", "--output", "benchmark-output/jev-multifile-ipc.json", "--mode", "literal-files", "--literal", "ipcMain.handle", "--ext", ".ts"]]
+    },
+    {
+      "id": "jev-security-server",
+      "repo": "kuatrometric",
+      "family": "principal",
+      "prompt": "Create only benchmark-output/jev-security-server.json. Security-sensitive routing experiment: use bounded search to locate any dangerous runtime patterns in the approved scope, then call io_context.query exactly once over the most relevant files using narrow literal selections and operation security. Do not call query more than once and do not delegate the security judgment. Report JSON key patterns for exactly eval, child_process, shell_true, node_integration_true, context_isolation_false, ipc_main_handle, context_bridge, ipc_renderer_invoke; every pattern has present and files. Do not modify existing files.",
+      "task_hint": "security review of server execution and credential boundaries",
+      "allow_files": ["server.js"],
+      "allow_prefixes": ["assets", "herramientas"],
+      "expected_route": "principal",
+      "validator": [["{python}", "{validation_root}/validators.py", "--root", ".", "--output", "benchmark-output/jev-security-server.json", "--mode", "security-patterns"]]
+    },
+    {
+      "id": "jev-small-negative",
+      "repo": "steroid",
+      "family": "small-control",
+      "prompt": "Create only benchmark-output/jev-small-negative.json from package.json. JSON is {fields:{\"version\":VALUE}} exactly. This is a small negative control: do not read unrelated files or invoke unavailable tools. Do not modify existing files.",
+      "task_hint": "single-file exact package version",
+      "allow_files": ["package.json"],
+      "expected_route": "bypass",
+      "validator": [["{python}", "{validation_root}/validators.py", "--root", ".", "--output", "benchmark-output/jev-small-negative.json", "--mode", "package-fields", "--field", "version"]]
+    }
+  ]
+}
