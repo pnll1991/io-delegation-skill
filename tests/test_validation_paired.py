@@ -13,7 +13,7 @@ paired = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(paired)
 
 
-def row(run_id, arm, tokens=100, wall=1000, router=False, worker=0, success=True):
+def row(run_id, arm, tokens=100, wall=1000, router=False, worker=0, worker_tokens=None, success=True):
     return {
         'schema': record.SCHEMA,
         'run_id': run_id,
@@ -26,7 +26,7 @@ def row(run_id, arm, tokens=100, wall=1000, router=False, worker=0, success=True
         'success': success,
         'principal': {'raw_tokens': tokens, 'usage': None},
         'router': {'called': router, 'usage': None, 'latency_ms': None},
-        'worker': {'calls': worker, 'accepted': worker, 'rejected': 0, 'usage': None, 'raw_tokens': None},
+        'worker': {'calls': worker, 'accepted': worker, 'rejected': 0, 'usage': None, 'raw_tokens': worker_tokens},
         'context': {'source_bytes': 1000, 'selected_bytes': 100, 'result_bytes': 100},
         'timing': {'wall_ms': wall},
         'validator': {'status': 'pass' if success else 'fail'},
@@ -43,6 +43,24 @@ class PairedTests(unittest.TestCase):
         self.assertEqual(family['principal_token_delta']['median'], -20)
         self.assertAlmostEqual(family['principal_token_delta_pct']['median'], -20)
         self.assertEqual(family['jev_called_pairs'], 1)
+
+    def test_agent_system_delta_includes_worker_only_when_called_and_accounted(self):
+        rows=[
+            row('001-t-control-r1','control',tokens=100),
+            row('002-t-gateway-r1','gateway',tokens=70,router=True,worker=1,worker_tokens=20),
+        ]
+        family=paired.summarize(rows,'control','gateway')['families']['multi-file-factual']
+        self.assertEqual(family['principal_token_delta']['median'],-30)
+        self.assertEqual(family['agent_system_token_delta']['median'],-10)
+        self.assertAlmostEqual(family['agent_system_token_delta_pct']['median'],-10)
+
+    def test_unknown_worker_accounting_keeps_system_delta_unknown(self):
+        rows=[
+            row('001-t-control-r1','control',tokens=100),
+            row('002-t-gateway-r1','gateway',tokens=70,router=True,worker=1,worker_tokens=None),
+        ]
+        family=paired.summarize(rows,'control','gateway')['families']['multi-file-factual']
+        self.assertEqual(family['agent_system_token_delta']['n'],0)
 
     def test_missing_pair_excluded(self):
         out = paired.summarize([row('001-t-control-r1', 'control')], 'control', 'gateway')
