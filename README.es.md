@@ -96,7 +96,7 @@ El presupuesto inicial permite hasta **350 líneas de origen y 64.000 bytes** po
 
 Ante un bloqueo, propone buscar símbolos, leer un rango o usar un auxiliar ya aprobado cuando convenga. **No inicia modelos ni cambia proveedores por su cuenta.** Sin auxiliar, sigue disponible la lectura dirigida.
 
-El instalador conserva los hooks y permisos existentes, respalda la configuración que modifica, comprueba el ejecutor local y permite `--dry-run` y `--remove`. No reemplaza silenciosamente un ejecutor modificado. La política está en `.io-delegation-hooks/policy.json`; `mode: "observe"` registra decisiones sin bloquear excesos. Los comandos usan rutas locales: hay que reinstalar al mover el proyecto o cambiar de máquina. Siguen siendo necesarias la confianza y aprobación normales del agente.
+El instalador conserva los hooks y permisos existentes, respalda la configuración que modifica, comprueba el ejecutor local y permite `--dry-run` y `--remove`. No reemplaza silenciosamente un ejecutor modificado. La política está en `.io-delegation-hooks/policy.json`; `mode: "observe"` registra decisiones sin bloquear excesos. El runtime de hooks usa rutas locales, mientras que la identidad del Context Gateway sobrevive al mover el proyecto. Volvé a ejecutar `setup` tras moverlo sólo para refrescar metadata o al cambiar Python. Siguen siendo necesarias la confianza y aprobación normales del agente.
 
 Para quitar solo el registro de esta integración, conservando los demás:
 

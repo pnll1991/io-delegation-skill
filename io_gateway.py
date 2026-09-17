@@ -129,11 +129,12 @@ def marker_id(root):
     return value
 
 
-def ensure_marker(root, dry_run=False):
+def ensure_marker(root, dry_run=False, project_id=None):
     current = marker_id(root)
     if current: return current, 'existing'
     legacy = projects_dir()/f'{legacy_project_id(root)}.json'
-    project_id = legacy_project_id(root) if legacy.is_file() else uuid.uuid4().hex[:16]
+    project_id = project_id or (legacy_project_id(root) if legacy.is_file() else uuid.uuid4().hex[:16])
+    if not ID_RE.fullmatch(project_id): raise ValueError('Invalid project id')
     if not dry_run:
         folder = Path(root)/MARKER_DIR; folder.mkdir(parents=True, exist_ok=True)
         atomic_write(folder/'.gitignore', b'*\n!.gitignore\n')
@@ -561,27 +562,29 @@ def command_setup(args):
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
     agents,prefixes,files,guard,worker_value,router_mode,router_source=setup_choices(root,args,existing)
-    project_id,marker_action=ensure_marker(root,dry_run=args.dry_run)
-    runtime_path,runtime_action=install_runtime(dry_run=args.dry_run)
+
+    # Phase 1: resolve and validate the complete plan without writing anything.
+    project_id,marker_action=ensure_marker(root,dry_run=True)
+    _,runtime_action=install_runtime(dry_run=True)
     worker=validate_worker(root,worker_value) if worker_value else None
-    router,router_generated=make_router_config(root,project_id,router_mode,args.typesafe_env,
-                                               router_source,dry_run=args.dry_run)
-    if existing and args.jev is None and not args.router_config and router and str(router)==existing.get('router_config'):
+    router_plan,router_generated=make_router_config(root,project_id,router_mode,args.typesafe_env,
+                                                    router_source,dry_run=True)
+    if existing and args.jev is None and not args.router_config and router_plan and str(router_plan)==existing.get('router_config'):
         router_generated=bool(existing.get('router_generated'))
-    credentials=credential_names(worker,router,args.typesafe_env if router_generated else None)
+    credentials=credential_names(worker,router_plan,args.typesafe_env if router_generated else None)
     skill_actions={}
     for agent in agents:
-        _,skill_actions[agent]=install_skill(root,agent,args.update,dry_run=args.dry_run)
+        _,skill_actions[agent]=install_skill(root,agent,args.update,dry_run=True)
     audit=audits_dir()/project_id
     state={'version':STATE_VERSION,'project':str(root),'project_id':project_id,'agents':agents,
            'audit_root':str(audit),'allow_prefixes':prefixes,'allow_files':files,
-           'worker_config':str(worker) if worker else None,'router_config':str(router) if router else None,
+           'worker_config':str(worker) if worker else None,'router_config':str(router_plan) if router_plan else None,
            'router_generated':bool(router_generated),'credential_env_names':credentials,
            'guard_mode':guard,'configured_at':existing.get('configured_at',int(time.time())) if existing else int(time.time()),
            'updated_at':int(time.time()),'skill_hashes':{},'registrations':{}}
-    states=all_states(extra=state)
-    global_actions=sync_global_mcp(states,dry_run=args.dry_run,replace=args.replace_existing_mcp)
-    guard_rows=run_guard_setup(root,agents,guard,dry_run=args.dry_run,
+    planned_states=all_states(extra=state)
+    global_actions=sync_global_mcp(planned_states,dry_run=True,replace=args.replace_existing_mcp)
+    guard_rows=run_guard_setup(root,agents,guard,dry_run=True,
                                allow_tracked=args.allow_tracked_config)
     if args.dry_run:
         actions={'marker':marker_action,'runtime':runtime_action,
@@ -591,11 +594,21 @@ def command_setup(args):
                  'claude_mcp':global_actions['claude-code'][1]}
         print_setup_plan(root,state,actions,guard_rows,args.json); return 0
 
-    previous_path=Path(existing['_state_path']) if existing else None
-    previous_bytes=previous_path.read_bytes() if previous_path and previous_path.is_file() else None
+    # Phase 2: apply only after every collision/policy check above has passed.
+    ensure_marker(root,dry_run=False,project_id=project_id)
+    install_runtime(dry_run=False)
+    router,router_generated=make_router_config(root,project_id,router_mode,args.typesafe_env,
+                                               router_source,dry_run=False)
+    state['router_config']=str(router) if router else None
+    state['router_generated']=bool(router_generated)
+    state['credential_env_names']=credential_names(worker,router,args.typesafe_env if router_generated else None)
+    for agent in agents:
+        install_skill(root,agent,args.update,dry_run=False)
     audit.mkdir(parents=True,exist_ok=True)
     for agent in agents:
         state['skill_hashes'][agent]=tree_hash(root/AGENT_DIR[agent])
+    previous_path=Path(existing['_state_path']) if existing else None
+    previous_bytes=previous_path.read_bytes() if previous_path and previous_path.is_file() else None
     path=save_state(state)
     try:
         registrations=sync_global_mcp(all_states(extra=state),replace=args.replace_existing_mcp)
@@ -604,6 +617,7 @@ def command_setup(args):
         run_guard_setup(root,agents,guard,allow_tracked=args.allow_tracked_config)
         save_state(state)
     except Exception:
+        # Restore state/global registration; managed local assets remain safe and can be retried/removed.
         try:
             if previous_bytes is not None and previous_path:
                 atomic_write(previous_path,previous_bytes)

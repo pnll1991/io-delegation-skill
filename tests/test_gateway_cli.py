@@ -195,4 +195,27 @@ class GatewayCLITests(unittest.TestCase):
 
 
 
+    def test_unmanaged_codex_collision_is_zero_write_preflight(self):
+        config=self.host/'.codex/config.toml'; config.parent.mkdir(parents=True)
+        config.write_text('[mcp_servers.io_context]\ncommand = "other"\n',encoding='utf-8')
+        code,text,err=self.setup_codex()
+        self.assertEqual(code,2); self.assertIn('unmanaged io_context',err)
+        self.assertFalse((self.project/'.io-delegation').exists())
+        self.assertFalse((self.project/'.agents').exists())
+        self.assertFalse(self.home.exists())
+        self.assertEqual(config.read_text(encoding='utf-8'),'[mcp_servers.io_context]\ncommand = "other"\n')
+
+    def test_default_setup_does_not_install_hooks(self):
+        code,text,err=self.setup_codex()
+        self.assertEqual(code,0,err)
+        self.assertFalse((self.project/'.io-delegation-hooks').exists())
+        self.assertEqual(gateway.load_state(self.project)['guard_mode'],'off')
+
+    def test_last_project_can_purge_runtime(self):
+        code,text,err=self.setup_codex(); self.assertEqual(code,0,err)
+        self.assertTrue((self.home/'runtime').exists())
+        code,text,err=self.cli('remove','--project',str(self.project),'--purge-runtime')
+        self.assertEqual(code,0,err); self.assertFalse((self.home/'runtime').exists())
+
+
 if __name__=='__main__': unittest.main()
