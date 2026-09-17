@@ -296,6 +296,27 @@ def managed_claude_mcp_config(path):
     Path(path).write_text(json.dumps(definition,separators=(',',':'))+'\n',encoding='utf-8')
     return Path(path)
 
+def managed_cursor_project_config(project):
+    project=Path(project).resolve(strict=True); folder=project/'.cursor'
+    mcp_path=folder/'mcp.json'; cli_path=folder/'cli.json'
+    if mcp_path.exists() or cli_path.exists():
+        raise ValueError('Cursor validation refuses to overwrite existing project config')
+    home=Path(os.environ.get('IO_DELEGATION_HOME',str(Path.home()/'.io-delegation'))).expanduser()
+    bootstrap=(home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
+    folder.mkdir(parents=True,exist_ok=True)
+    mcp={'mcpServers':{'io_context':{'type':'stdio','command':str(Path(sys.executable).resolve()),'args':[str(bootstrap),'--project',str(project)]}}}
+    cli={'version':1,'permissions':{'allow':['Mcp(io_context:*)'],'deny':['Shell(*)','Read(**)','Write(**)','WebFetch(*)']}}
+    mcp_path.write_text(json.dumps(mcp,separators=(',',':'))+'\n',encoding='utf-8')
+    cli_path.write_text(json.dumps(cli,separators=(',',':'))+'\n',encoding='utf-8')
+    return (mcp_path,cli_path)
+
+def cleanup_cursor_project_config(paths):
+    if not paths: return
+    folder=paths[0].parent
+    for path in paths: path.unlink(missing_ok=True)
+    try: folder.rmdir()
+    except OSError: pass
+
 def preflight(host, project, io_command='io-delegation'):
     executable = 'claude' if host == 'claude' else 'agent'
     if not shutil.which(executable):
@@ -439,12 +460,18 @@ def main(argv=None):
     parser.add_argument('--preflight', action='store_true')
     args = parser.parse_args(argv)
     suite = validate_suite(read_json(args.suite))
-    project, audit = preflight(args.host, args.project, args.io_command)
-    if args.preflight:
-        print(json.dumps({'ok': True, 'model_calls': 0, 'cases': len(suite['cases']), 'audit': str(audit)}))
+    cursor_paths=None
+    try:
+        if args.host == 'cursor':
+            cursor_paths=managed_cursor_project_config(args.project)
+        project, audit = preflight(args.host, args.project, args.io_command)
+        if args.preflight:
+            print(json.dumps({'ok': True, 'model_calls': 0, 'cases': len(suite['cases']), 'audit': str(audit)}))
+            return 0
+        print(json.dumps(run_suite(args.host, project, audit, suite, args.output, model=args.model), ensure_ascii=False, indent=2))
         return 0
-    print(json.dumps(run_suite(args.host, project, audit, suite, args.output, model=args.model), ensure_ascii=False, indent=2))
-    return 0
+    finally:
+        cleanup_cursor_project_config(cursor_paths)
 
 
 if __name__ == '__main__':

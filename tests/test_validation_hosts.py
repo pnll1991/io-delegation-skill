@@ -40,6 +40,33 @@ class HostValidationTests(unittest.TestCase):
         self.assertIn('--workspace', command)
         self.assertNotIn('--approve-mcps', command)
 
+    def test_cursor_project_config_is_mcp_only_and_cleanup_safe(self):
+        old=__import__('os').environ.get('IO_DELEGATION_HOME')
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                base=Path(folder); project=base/'project'; project.mkdir()
+                home=base/'home'; bootstrap=home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py'
+                bootstrap.parent.mkdir(parents=True); bootstrap.write_text('pass\n',encoding='utf-8')
+                __import__('os').environ['IO_DELEGATION_HOME']=str(home)
+                paths=mod.managed_cursor_project_config(project)
+                mcp=json.loads(paths[0].read_text(encoding='utf-8'))
+                cli=json.loads(paths[1].read_text(encoding='utf-8'))
+                self.assertEqual(set(mcp['mcpServers']),{'io_context'})
+                self.assertEqual(cli['permissions']['allow'],['Mcp(io_context:*)'])
+                self.assertEqual(set(cli['permissions']['deny']),{'Shell(*)','Read(**)','Write(**)','WebFetch(*)'})
+                mod.cleanup_cursor_project_config(paths)
+                self.assertFalse((project/'.cursor').exists())
+        finally:
+            if old is None: __import__('os').environ.pop('IO_DELEGATION_HOME',None)
+            else: __import__('os').environ['IO_DELEGATION_HOME']=old
+
+    def test_cursor_project_config_refuses_existing_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            project=Path(folder); (project/'.cursor').mkdir(); (project/'.cursor/cli.json').write_text('{}')
+            with self.assertRaisesRegex(ValueError,'refuses to overwrite'):
+                mod.managed_cursor_project_config(project)
+            self.assertFalse((project/'.cursor/mcp.json').exists())
+
     def test_host_mcp_checks(self):
         self.assertEqual(mod.mcp_check_command('claude')[1:4], ['mcp', 'get', 'io_context'])
         self.assertEqual(mod.mcp_check_command('cursor')[1:4], ['mcp', 'list-tools', 'io_context'])
