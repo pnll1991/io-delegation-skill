@@ -28,7 +28,7 @@ class ActivationEvidenceTests(unittest.TestCase):
         out=mod.evaluate(rows,required_pairs=1,min_valid_pairs=1)
         self.assertTrue(out['pass'])
         self.assertAlmostEqual(out['principal_token_delta_pct']['median'],-20.0)
-        self.assertEqual(out['wall_time_delta_pct']['median'],-10.0)
+        self.assertAlmostEqual(out['wall_time_delta_pct']['median'],-10.0)
 
     def test_false_enable_fails(self):
         rows=[row('gate-always','001-t-gate-always-r1',decision='enable'),
