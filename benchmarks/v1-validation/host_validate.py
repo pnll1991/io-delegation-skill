@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""Authenticated Claude Code / Cursor host validation using the common run schema."""
+"""Authenticated Claude Code / Cursor host validation using observed MCP audit data."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import time
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+SCRIPTS = ROOT / 'skills' / 'io-delegation' / 'scripts'
+sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(HERE))
+import context_telemetry
 import record
+
+PROJECT_ID_RE = re.compile(r'^[0-9a-f]{12,32}$')
 
 
 def read_json(path):
@@ -110,6 +117,122 @@ def parse_usage(raw):
     return result
 
 
+def project_audit_root(project):
+    project = Path(project).resolve(strict=True)
+    marker = read_json(project / '.io-delegation' / 'project.json')
+    project_id = marker.get('project_id') if isinstance(marker, dict) else None
+    if not isinstance(project_id, str) or not PROJECT_ID_RE.fullmatch(project_id):
+        raise ValueError('invalid I/O Delegation project marker')
+    home = Path(os.environ.get('IO_DELEGATION_HOME', str(Path.home()/'.io-delegation'))).expanduser()
+    state = read_json(home / 'projects' / f'{project_id}.json')
+    if not isinstance(state, dict) or state.get('project_id') != project_id:
+        raise ValueError('I/O Delegation project state missing or invalid')
+    audit = Path(state.get('audit_root', '')).expanduser().resolve(strict=True)
+    if not audit.is_dir():
+        raise ValueError('I/O Delegation audit directory missing')
+    return audit
+
+
+def audit_snapshot(audit):
+    context_path = Path(audit) / 'context-events.jsonl'
+    rows, malformed = context_telemetry.events(context_path)
+    worker = context_telemetry.workers(Path(audit) / '.io-delegation' / 'worker-events.jsonl')
+    return {'context_count': len(rows), 'context_malformed': malformed, 'worker': worker}
+
+
+def _sum_if_complete(rows, key, predicate=lambda row: True):
+    selected = [row for row in rows if predicate(row)]
+    if not selected:
+        return None
+    values = [row.get(key) for row in selected]
+    if any(type(value) is not int or value < 0 for value in values):
+        return None
+    return sum(values)
+
+
+def observed_context(audit, before):
+    rows, malformed = context_telemetry.events(Path(audit) / 'context-events.jsonl')
+    new = rows[before['context_count']:]
+    completed = [row for row in new if row.get('schema') == 'io-context/v1' and row.get('event') == 'operation_completed']
+    queries = [row for row in completed if row.get('operation') == 'query']
+    if queries:
+        route = queries[-1].get('route')
+    elif any(row.get('operation') == 'extract' for row in completed):
+        route = 'targeted_read'
+    elif any(row.get('operation') == 'search' for row in completed):
+        route = 'deterministic'
+    elif not completed:
+        route = 'principal'
+    else:
+        route = 'deterministic'
+    router_rows = [row for row in queries if int(row.get('router_calls', 0) or 0) > 0]
+    router_called = bool(router_rows)
+    router_usage = None
+    if router_called:
+        input_tokens = _sum_if_complete(router_rows, 'router_input_tokens')
+        output_tokens = _sum_if_complete(router_rows, 'router_output_tokens')
+        if input_tokens is not None and output_tokens is not None:
+            router_usage = {
+                'input_tokens': input_tokens,
+                'output_tokens': output_tokens,
+                'cached_input_tokens': None,
+                'reasoning_output_tokens': None,
+            }
+    return {
+        'route': route,
+        'operations': [row.get('operation') for row in completed],
+        'source_bytes': sum(int(row.get('source_bytes', 0) or 0) for row in completed),
+        'selected_bytes': sum(int(row.get('selected_bytes', 0) or 0) for row in completed),
+        'result_bytes': sum(int(row.get('result_bytes', 0) or 0) for row in completed),
+        'router_called': router_called,
+        'router_usage': router_usage,
+        'router_latency_ms': _sum_if_complete(router_rows, 'router_elapsed_ms') if router_called else None,
+        'router_route': queries[-1].get('router_route') if queries else None,
+        'router_confidence': queries[-1].get('router_confidence') if queries else None,
+        'malformed_delta': max(0, malformed - before['context_malformed']),
+    }
+
+
+def _nonnegative_delta(after, before, key):
+    a = after.get(key); b = before.get(key)
+    if type(a) is not int or type(b) is not int or a < b:
+        return None
+    return a - b
+
+
+def observed_worker(audit, before):
+    after = context_telemetry.workers(Path(audit) / '.io-delegation' / 'worker-events.jsonl')
+    prior = before['worker']
+    calls = _nonnegative_delta(after, prior, 'calls')
+    accepted = _nonnegative_delta(after, prior, 'accepted')
+    failures = _nonnegative_delta(after, prior, 'failures')
+    usage = None
+    if calls and after.get('accounting_complete') and prior.get('accounting_complete'):
+        values = {}
+        for key in ('input_tokens','output_tokens','cached_input_tokens','cache_write_input_tokens','reasoning_output_tokens'):
+            a = (after.get('usage') or {}).get(key); b = (prior.get('usage') or {}).get(key)
+            values[key] = a-b if type(a) is int and type(b) is int and a >= b else None
+        if values['input_tokens'] is not None and values['output_tokens'] is not None:
+            usage = {
+                'input_tokens': values['input_tokens'],
+                'output_tokens': values['output_tokens'],
+                'cached_input_tokens': values['cached_input_tokens'],
+                'reasoning_output_tokens': values['reasoning_output_tokens'],
+            }
+    raw_tokens = None
+    a = after.get('raw_tokens'); b = prior.get('raw_tokens')
+    if type(a) is int and type(b) is int and a >= b:
+        raw_tokens = a-b
+    return {
+        'calls': calls if calls is not None else 0,
+        'accepted': accepted if accepted is not None else 0,
+        'rejected': failures if failures is not None else 0,
+        'usage': usage,
+        'raw_tokens': raw_tokens,
+        'accounting_complete': bool(after.get('accounting_complete') and prior.get('accounting_complete')),
+    }
+
+
 def preflight(host, project, io_command='io-delegation'):
     executable = 'claude' if host == 'claude' else 'agent'
     if not shutil.which(executable):
@@ -127,7 +250,7 @@ def preflight(host, project, io_command='io-delegation'):
     )
     if mcp.returncode:
         raise ValueError('host does not report io_context MCP as available')
-    return project
+    return project, project_audit_root(project)
 
 
 def validate_suite(data):
@@ -144,10 +267,12 @@ def validate_suite(data):
             raise ValueError('case prompt required')
         if not isinstance(case.get('validator'), list) or not case['validator']:
             raise ValueError('case validator required')
+        if case.get('expected_route') not in ('deterministic','targeted_read','bulk_read','principal'):
+            raise ValueError('case expected_route required')
     return data
 
 
-def run_suite(host, project, suite, output, model=None):
+def run_suite(host, project, audit, suite, output, model=None):
     output = Path(output)
     if output.exists() and any(output.iterdir()):
         raise ValueError('output directory must be new/empty')
@@ -158,6 +283,7 @@ def run_suite(host, project, suite, output, model=None):
         run_id = f'{host}-{index:02d}-{case["id"]}-r1'
         prompt = case['prompt']
         command = build_command(host, project, prompt, model=model)
+        before = audit_snapshot(audit)
         started_epoch = time.time()
         started = time.monotonic()
         cp = subprocess.run(command, cwd=project, capture_output=True, timeout=int(case.get('timeout_seconds', 600)))
@@ -167,7 +293,16 @@ def run_suite(host, project, suite, output, model=None):
         raw_tokens = None
         if usage and usage['input_tokens'] is not None and usage['output_tokens'] is not None:
             raw_tokens = usage['input_tokens'] + usage['output_tokens']
-        success = cp.returncode == 0 and ok
+        context = observed_context(audit, before)
+        worker = observed_worker(audit, before)
+        expected = case['expected_route']
+        route_ok = context['route'] == expected
+        success = cp.returncode == 0 and ok and route_ok and context['malformed_delta'] == 0
+        errors = []
+        if cp.returncode: errors.append('host_nonzero_exit')
+        if not ok: errors.append('validator_failed')
+        if not route_ok: errors.append('route_mismatch')
+        if context['malformed_delta']: errors.append('audit_malformed')
         value = {
             'schema': record.SCHEMA,
             'run_id': run_id,
@@ -181,17 +316,31 @@ def run_suite(host, project, suite, output, model=None):
             'ended_at': time.time(),
             'success': success,
             'activation': None,
-            'route': {'effective': case.get('expected_route'), 'confidence': None, 'fallback': False},
+            'route': {
+                'effective': context['route'],
+                'expected': expected,
+                'model_route': context['router_route'],
+                'confidence': context['router_confidence'],
+                'fallback': context['router_route'] in ('error','current_rules'),
+            },
             'principal': {'model': model, 'usage': usage, 'raw_tokens': raw_tokens},
-            'router': {'called': None, 'usage': None, 'latency_ms': None},
-            'worker': {'calls': 0, 'accepted': 0, 'rejected': 0, 'usage': None, 'raw_tokens': None},
-            'context': {'source_bytes': None, 'selected_bytes': None, 'result_bytes': None},
+            'router': {
+                'called': context['router_called'],
+                'usage': context['router_usage'],
+                'latency_ms': context['router_latency_ms'],
+            },
+            'worker': worker,
+            'context': {
+                'source_bytes': context['source_bytes'],
+                'selected_bytes': context['selected_bytes'],
+                'result_bytes': context['result_bytes'],
+            },
             'timing': {'wall_ms': wall_ms},
             'validator': {'status': 'pass' if ok else 'fail', 'checks': len(checks)},
             'rework': 0,
-            'errors': [] if success else ['host_or_validator_failure'],
-            'notes': '',
-            'tags': ['authenticated-host-validation'],
+            'errors': errors,
+            'notes': 'observed_operations=' + ','.join(str(x) for x in context['operations']),
+            'tags': ['authenticated-host-validation','observed-mcp-audit'],
         }
         record.append(records, value)
         results.append(value)
@@ -211,11 +360,11 @@ def main(argv=None):
     parser.add_argument('--preflight', action='store_true')
     args = parser.parse_args(argv)
     suite = validate_suite(read_json(args.suite))
-    project = preflight(args.host, args.project, args.io_command)
+    project, audit = preflight(args.host, args.project, args.io_command)
     if args.preflight:
-        print(json.dumps({'ok': True, 'model_calls': 0, 'cases': len(suite['cases'])}))
+        print(json.dumps({'ok': True, 'model_calls': 0, 'cases': len(suite['cases']), 'audit': str(audit)}))
         return 0
-    print(json.dumps(run_suite(args.host, project, suite, args.output, model=args.model), ensure_ascii=False, indent=2))
+    print(json.dumps(run_suite(args.host, project, audit, suite, args.output, model=args.model), ensure_ascii=False, indent=2))
     return 0
 
 
