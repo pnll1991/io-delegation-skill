@@ -15,6 +15,22 @@ class RealLauncherTests(unittest.TestCase):
         validator_path=out['cmd'][0].replace('\\','/')
         self.assertTrue(validator_path.endswith('benchmarks/v1-validation/validators.py'))
 
+    def test_prepare_injects_authorized_scope_into_validator(self):
+        value={
+            'tasks':[{
+                'allow_prefixes':['src','lib'],
+                'allow_files':['package.json'],
+                'validator':[['{validation_root}/validators.py','--root','.','--output','x.json','--mode','extension-counts']],
+            }]
+        }
+        out=mod.prepare(value,{})
+        command=out['tasks'][0]['validator'][0]
+        self.assertEqual(command.count('--scope-prefix'),2)
+        self.assertEqual(command.count('--scope-file'),1)
+        self.assertIn('src',command); self.assertIn('lib',command); self.assertIn('package.json',command)
+        again=mod.inject_scope_flags(out)
+        self.assertEqual(again['tasks'][0]['validator'][0],command)
+
     def test_missing_env_is_error(self):
         with self.assertRaisesRegex(ValueError,'MISSING_X'):
             mod.expand('${MISSING_X}',{})
