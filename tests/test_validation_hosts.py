@@ -178,6 +178,14 @@ class HostValidationTests(unittest.TestCase):
         self.assertEqual(usage['cached_input_tokens'],4)
         self.assertEqual(usage['cache_write_input_tokens'],1)
 
+    def test_usage_parser_supports_codex_jsonl(self):
+        raw=(b'{"type":"turn.started"}\n'
+             b'{"type":"turn.completed","usage":{"input_tokens":30,"output_tokens":4,"cached_input_tokens":12}}\n')
+        usage=mod.parse_usage(raw)
+        self.assertEqual(usage['input_tokens'],30)
+        self.assertEqual(usage['output_tokens'],4)
+        self.assertEqual(usage['cached_input_tokens'],12)
+
 
     def test_managed_claude_mcp_config_contains_only_io_context(self):
         with tempfile.TemporaryDirectory() as folder:
