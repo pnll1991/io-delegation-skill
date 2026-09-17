@@ -31,7 +31,7 @@ def handshake(args):
     try:
         responses=[json.loads(x) for x in cp.stdout.splitlines()]
         names=[x['name'] for x in next(x['result']['tools'] for x in responses if x.get('id')==2)]
-        ok=cp.returncode==0 and not cp.timed_out and not cp.oversized and names in (['search','extract','query'],['search','extract','query','semantic_query'])
+        ok=cp.returncode==0 and not cp.timed_out and not cp.oversized and names == ['search','extract','query']
     except (ValueError,KeyError,StopIteration,TypeError):ok=False;names=[]
     return dict(ok=ok,model_calls=0,tools=names),cp
 
@@ -44,8 +44,10 @@ def verify(output,model='gpt-5.6-luna',config=None,live=False):
     with tempfile.TemporaryDirectory(prefix='context-boundary-') as temp:
         root=Path(temp);nonce=uuid.uuid4().hex[:16]
         (root/'probe.json').write_bytes(encoded(dict(value=nonce))+b'\n')
-        (root/'probe.txt').write_text('VALUE = '+nonce+'\n',encoding='utf-8')
-        args=codex_arguments(root,audit,files=['probe.json','probe.txt'],config=config)
+        (root/'probe.txt').write_text('VALUE = '+nonce+'\n'+('x'*900)+'\n',encoding='utf-8')
+        (root/'probe2.txt').write_text('VALUE = '+nonce+'\n'+('y'*900)+'\n',encoding='utf-8')
+        (root/'probe3.txt').write_text('VALUE = '+nonce+'\n'+('z'*900)+'\n',encoding='utf-8')
+        args=codex_arguments(root,audit,files=['probe.json','probe.txt','probe2.txt','probe3.txt'],config=config)
         result,cp=handshake(args);(output/'handshake.json').write_bytes(encoded(result)+b'\n')
         (output/'handshake.stderr.txt').write_bytes(cp.stderr)
         if not result['ok'] or not live:
@@ -56,9 +58,13 @@ def verify(output,model='gpt-5.6-luna',config=None,live=False):
         prompt=('Call io_context.extract exactly once with paths ["probe.json"] and projection {"kind":"json","pointers":["/value"]}. '
                 'Answer only the extracted value. Do not use shell, memory or other tools; stop on tool failure.')
         if config:
-            prompt=('Call io_context.semantic_query exactly once with selections [{"path":"probe.txt","select":{"kind":"lines","start":1,"end":1}}] '
-                    'and question "What is the value of VALUE? Cite the assignment literally and include the value in fact." '
-                    'Answer only its value. Do not read files, use shell, memory or other tools. Stop on tool failure, no retry.')
+            prompt=('Call io_context.query exactly once with selections '
+                    '[{"path":"probe.txt","select":{"kind":"literal","needle":"VALUE","window":32,"max_regions":1}},'
+                    '{"path":"probe2.txt","select":{"kind":"literal","needle":"VALUE","window":32,"max_regions":1}},'
+                    '{"path":"probe3.txt","select":{"kind":"literal","needle":"VALUE","window":32,"max_regions":1}}], '
+                    'question "What identical value is assigned to VALUE in all three selected fragments?", operation "factual", '
+                    'search_results 3, known_symbols 1. Answer only the value. Do not read files, use shell, memory or other tools. '
+                    'Stop on tool failure, no retry.')
         cmd=[exe,'exec','--json','--ephemeral','--ignore-user-config','--disable','apps','--disable','plugins','--skip-git-repo-check','-C',str(root),'-s','workspace-write','-m',model,
              '-c','model_reasoning_effort="medium"','-c','web_search="disabled"','-c','features.shell_tool=false','-c','features.unified_exec=false',
              '-c','features.multi_agent=false','-c','features.memories=false','-c','skills.include_instructions=false']
