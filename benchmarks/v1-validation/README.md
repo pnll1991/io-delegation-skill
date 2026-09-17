@@ -14,11 +14,11 @@ This directory is the common evidence pipeline for dogfood, repeated routing A/B
 ## Components
 
 - `record.py` — versioned JSONL schema, validation, redaction and summaries.
-- `experiment.py` — worktree-based Codex runner with deterministic activation and explicit gateway/Jev/worker arms.
+- `experiment.py` — one-run worktree mechanics and explicit gateway/Jev/worker arms.
+- `run.py` — immutable plan, schema/preflight modes and resumable orchestration.
 - `paired.py` — paired deltas and causal-attribution warnings.
-- `resume.py` — immutable-plan recovery for interrupted runs.
 - `validators.py` — independent static gold calculation for real repositories.
-- `run_real.py` — expands machine-local environment variables without committing local paths.
+- `run_real.py` — expands machine-local variables and invokes the resumable runner.
 - `preflight_real.py` — computes every real-task gold at pinned commits with zero model calls.
 - `host_validate.py` — authenticated Claude Code / Cursor headless host runner.
 - `dogfood.real.template.json` — 20 tasks across 3 real repositories.
@@ -51,13 +51,20 @@ Then execute into a new output directory:
 python benchmarks/v1-validation/run_real.py benchmarks/v1-validation/dogfood.real.template.json --output <new-dir>
 ```
 
-Interrupted runs preserve their plan/history. Use `resume.py`; never delete a failure to make the sample cleaner.
-
-## Generic preflight/run
+If interrupted, resume the exact immutable plan:
 
 ```bash
-python benchmarks/v1-validation/experiment.py local-manifest.json --preflight
-python benchmarks/v1-validation/experiment.py local-manifest.json --output <new-dir>
+python benchmarks/v1-validation/run_real.py benchmarks/v1-validation/dogfood.real.template.json --output <same-dir> --resume
+```
+
+Completed run IDs are skipped; an incomplete run directory is archived under `interrupted/` before retry. Never delete a failure to make the sample cleaner.
+
+## Generic schema/preflight/run
+
+```bash
+python benchmarks/v1-validation/run.py local-manifest.json --schema-only
+python benchmarks/v1-validation/run.py local-manifest.json --preflight
+python benchmarks/v1-validation/run.py local-manifest.json --output <new-dir>
 ```
 
 Each task runs in a detached worktree at its pinned commit. A `bypass` arm does not attach the Context Gateway skill/MCP. Raw Codex JSONL is removed after accounting unless `--keep-raw` is explicitly used for debugging.
