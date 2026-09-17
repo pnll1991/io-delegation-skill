@@ -67,6 +67,12 @@ class ReleaseEvidenceTests(unittest.TestCase):
         wrong=dict(good); wrong['schema']='unknown'
         self.assertFalse(mod.activation_gate(wrong)['pass'])
 
+    def test_host_parity_gate_requires_lifecycle_complete(self):
+        good={'critical_deviations':0,'lifecycle_complete':True}
+        bad={'critical_deviations':0,'lifecycle_complete':False}
+        self.assertTrue(good['critical_deviations']==0 and good['lifecycle_complete'] is True)
+        self.assertFalse(bad['critical_deviations']==0 and bad['lifecycle_complete'] is True)
+
     def test_release_is_fail_closed_on_security(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
@@ -90,7 +96,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
             (root/'activation.json').write_text(json.dumps({
                 'schema':'io-context-activation-evidence/v1','pass':True,'pairs':15,
                 'false_enable_run_ids':[],'unexpected_call_run_ids':[],'context_leak_run_ids':[]}),encoding='utf-8')
-            (root/'parity.json').write_text(json.dumps({'schema':'io-context-host-parity/v1','critical_deviations':0}),encoding='utf-8')
+            (root/'parity.json').write_text(json.dumps({'schema':'io-context-host-parity/v1','critical_deviations':0,'lifecycle_complete':True}),encoding='utf-8')
             (root/'security.json').write_text(json.dumps({'schema':'io-context-security-audit/v1','clean':False,'secret_hits':[{'env':'X'}],'forbidden_event_fields':[],'malformed_jsonl':[]}),encoding='utf-8')
             class Args: pass
             a=Args(); a.dogfood_records=root/'dog.jsonl'; a.activation=root/'activation.json'; a.jev_records=root/'jev.jsonl'; a.worker_records=root/'worker.jsonl'; a.parity=root/'parity.json'; a.security=root/'security.json'
