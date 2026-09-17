@@ -30,10 +30,12 @@ def evaluate(rows,left='gate-always',right='gate-auto',required_pairs=15,min_val
     pairs,incomplete=paired.pair_rows(rows,left,right)
     valid=[]; token_pct=[]; wall_pct=[]
     always_success=auto_success=0
-    false_enables=[]; leaked_context=[]; unexpected_calls=[]
+    false_enables=[]; leaked_context=[]; unexpected_calls=[]; quality_regressions=[]
     for key,always,auto in pairs:
         always_success += always.get('success') is True
         auto_success += auto.get('success') is True
+        if always.get('success') is True and auto.get('success') is not True:
+            quality_regressions.append(auto['run_id'])
         decision=_get(auto,'activation','decision')
         if decision!='bypass': false_enables.append(auto['run_id'])
         if any((_get(auto,'context',field) or 0)>0 for field in ('source_bytes','selected_bytes','result_bytes')):
@@ -47,7 +49,7 @@ def evaluate(rows,left='gate-always',right='gate-auto',required_pairs=15,min_val
     token_median=_median(token_pct); wall_median=_median(wall_pct)
     gates={
         'complete_pairs': len(pairs)>=required_pairs and not incomplete,
-        'functional_quality': auto_success>=always_success,
+        'functional_quality': auto_success>=always_success and not quality_regressions,
         'valid_efficiency_sample': len(valid)>=min_valid_pairs,
         'all_small_controls_bypass': not false_enables,
         'bypass_has_zero_gateway_context': not leaked_context,
@@ -63,6 +65,7 @@ def evaluate(rows,left='gate-always',right='gate-auto',required_pairs=15,min_val
         'false_enable_run_ids':false_enables,
         'context_leak_run_ids':leaked_context,
         'unexpected_call_run_ids':unexpected_calls,
+        'quality_regression_run_ids':quality_regressions,
         'principal_token_delta_pct':paired.distribution(token_pct),
         'wall_time_delta_pct':paired.distribution(wall_pct),
         'thresholds':{
