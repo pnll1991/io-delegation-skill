@@ -1,0 +1,116 @@
+import importlib.util
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / 'benchmarks/v1-validation/record.py'
+spec = importlib.util.spec_from_file_location('v1_record', SCRIPT)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+
+def row(run_id='r1', arm='gateway'):
+    return {
+        'schema': mod.SCHEMA,
+        'run_id': run_id,
+        'task_id': 't1',
+        'family': 'targeted',
+        'repo': 'x/y',
+        'commit': 'abc',
+        'arm': arm,
+        'host': 'codex',
+        'started_at': 1.0,
+        'ended_at': 2.0,
+        'success': True,
+        'activation': {'decision': 'enable', 'reason': 'test', 'signals': {}},
+        'route': {'effective': 'targeted_read', 'confidence': None, 'fallback': False},
+        'principal': {
+            'model': 'm',
+            'usage': {
+                'input_tokens': 10,
+                'output_tokens': 2,
+                'cached_input_tokens': None,
+                'reasoning_output_tokens': None,
+            },
+            'raw_tokens': 12,
+        },
+        'router': {'called': False, 'usage': None, 'latency_ms': None},
+        'worker': {
+            'calls': 0, 'accepted': 0, 'rejected': 0,
+            'usage': None, 'raw_tokens': None,
+        },
+        'context': {'source_bytes': 100, 'selected_bytes': 20, 'result_bytes': 20},
+        'timing': {'wall_ms': 1000},
+        'validator': {'status': 'pass', 'exit_code': 0},
+        'rework': 0,
+        'errors': [],
+        'notes': '',
+        'tags': [],
+    }
+
+
+class RecordTests(unittest.TestCase):
+    def test_valid_roundtrip_and_summary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'runs.jsonl'
+            mod.append(path, row('r1'))
+            mod.append(path, row('r2', 'control'))
+            rows = mod.load(path)
+            self.assertEqual(len(rows), 2)
+            summary = mod.summarize(rows)
+            self.assertEqual(summary['runs'], 2)
+            self.assertEqual(summary['overall']['gateway']['principal_tokens']['median'], 12)
+
+    def test_unknown_tokens_remain_null(self):
+        value = row()
+        value['principal']['raw_tokens'] = None
+        value['principal']['usage'] = None
+        mod.validate(value)
+        self.assertIsNone(mod.summarize([value])['overall']['gateway']['principal_tokens']['median'])
+
+    def test_duplicate_ids_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'runs.jsonl'
+            mod.append(path, row())
+            mod.append(path, row())
+            with self.assertRaisesRegex(ValueError, 'duplicate'):
+                mod.load(path)
+
+    def test_forbidden_source_content_rejected(self):
+        value = row()
+        value['context']['source_text'] = 'secret'
+        with self.assertRaisesRegex(ValueError, 'Forbidden'):
+            mod.validate(value)
+
+    def test_fake_secret_redacted(self):
+        secret = 'FAKE_SECRET_ABC123'
+        value = row()
+        value['notes'] = 'token=' + secret
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'runs.jsonl'
+            mod.append(path, value, [secret])
+            text = path.read_text(encoding='utf-8')
+            self.assertNotIn(secret, text)
+            self.assertIn('[REDACTED]', text)
+
+    def test_bad_token_value_rejected(self):
+        value = row()
+        value['principal']['usage']['input_tokens'] = -1
+        with self.assertRaises(ValueError):
+            mod.validate(value)
+
+    def test_selected_source_math_fixture(self):
+        value = row()
+        value['context'] = {'source_bytes': 1000, 'selected_bytes': 250, 'result_bytes': 100}
+        mod.validate(value)
+        self.assertEqual(value['context']['selected_bytes'] / value['context']['source_bytes'], .25)
+
+    def test_windows_path_serializes(self):
+        value = row()
+        value['repo'] = r'D:\repo\x'
+        self.assertIn('repo', json.dumps(mod.sanitized(value), ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    unittest.main()
