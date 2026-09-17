@@ -41,7 +41,7 @@ class PairedTests(unittest.TestCase):
         out = paired.summarize(rows, 'control', 'gateway')
         family = out['families']['multi-file-factual']
         self.assertEqual(family['principal_token_delta']['median'], -20)
-        self.assertEqual(family['principal_token_delta_pct']['median'], -20)
+        self.assertAlmostEqual(family['principal_token_delta_pct']['median'], -20)
         self.assertEqual(family['jev_called_pairs'], 1)
 
     def test_missing_pair_excluded(self):
