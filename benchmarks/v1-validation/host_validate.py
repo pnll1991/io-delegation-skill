@@ -69,7 +69,6 @@ def build_command(host, project, prompt, model=None, mcp_config=None):
             *managed_codex_mcp_args(project), '-',
         ]
         if model:
-            command[command.index('-c')] = '-c'
             command[2:2] = ['-m', model]
         return command
     raise ValueError('host must be codex, claude or cursor')
