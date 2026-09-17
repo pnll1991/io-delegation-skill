@@ -88,6 +88,10 @@ def configured_serve(root, state):
     scripts = Path(__file__).resolve().parent
     sys.path.insert(0, str(scripts))
     from context_activation import decide as activation_decide
+    # Existing V1.1 states predate activation_mode. Keep their behavior until setup refreshes them.
+    if 'activation_mode' not in state:
+        state = dict(state)
+        state['activation_mode'] = 'always'
     activation = activation_decide(root, state)
     if activation.get('decision') == 'bypass':
         return inactive_serve()
