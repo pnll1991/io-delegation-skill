@@ -48,6 +48,7 @@ class ActivationEvidenceTests(unittest.TestCase):
         out=mod.evaluate(rows,required_pairs=1,min_valid_pairs=1)
         self.assertFalse(out['gates']['functional_quality'])
         self.assertFalse(out['gates']['valid_efficiency_sample'])
+        self.assertEqual(out['quality_regression_run_ids'],['002-t-gate-auto-r1'])
 
     def test_context_on_bypass_fails(self):
         rows=[row('gate-always','001-t-gate-always-r1',decision='enable'),
