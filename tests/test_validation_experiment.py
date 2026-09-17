@@ -1,7 +1,9 @@
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'benchmarks/v1-validation/experiment.py'
 spec = importlib.util.spec_from_file_location('v1_experiment', SCRIPT)
@@ -94,6 +96,34 @@ class ExperimentTests(unittest.TestCase):
         )
         self.assertTrue(ok)
         self.assertEqual(rows[0]['exit_code'], 0)
+        self.assertNotIn('stdout_tail', rows[0])
+
+    def test_validator_output_is_bounded_and_redacted(self):
+        secret='VALIDATOR_FAKE_SECRET_123456'
+        command=['python','-c',
+                 'import os,sys; print("x"*6000+os.environ["TEST_VALIDATOR_KEY"]); print("bad",file=sys.stderr); raise SystemExit(4)']
+        with patch.dict(os.environ, {'TEST_VALIDATOR_KEY':secret}, clear=False):
+            ok,rows=mod.run_checks(self.root,[command],{'worktree':self.root})
+        self.assertFalse(ok)
+        self.assertEqual(rows[0]['exit_code'],4)
+        self.assertNotIn(secret,rows[0].get('stdout_tail',''))
+        self.assertIn('[REDACTED]',rows[0].get('stdout_tail',''))
+        self.assertLessEqual(len(rows[0].get('stdout_tail','')),mod.VALIDATOR_TAIL_BYTES+32)
+        self.assertEqual(len(rows[0]['stdout_sha256']),64)
+        self.assertIn('bad',rows[0].get('stderr_tail',''))
+
+    def test_run_conditions_are_explicit(self):
+        principal={'cached_input_tokens':123}
+        enabled={'decision':'enable'}
+        bypass={'decision':'bypass'}
+        self.assertEqual(mod.run_conditions(principal,enabled),{
+            'principal_process':'cold','context_cache':'cold','provider_cache':'reported','worktree':'fresh'})
+        self.assertEqual(mod.run_conditions({},bypass)['context_cache'],'disabled')
+        self.assertEqual(mod.run_conditions({},bypass)['provider_cache'],'unreported')
+
+    def test_usage_object_keeps_cache_write_tokens(self):
+        usage={'input_tokens':10,'output_tokens':2,'cached_input_tokens':4,'cache_write_input_tokens':3,'reasoning_output_tokens':1}
+        self.assertEqual(mod.usage_object(usage)['cache_write_input_tokens'],3)
 
     def test_unsafe_run_id_rejected(self):
         with self.assertRaises(ValueError):
