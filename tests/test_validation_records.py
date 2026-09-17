@@ -31,6 +31,7 @@ def row(run_id='r1', arm='gateway'):
                 'input_tokens': 10,
                 'output_tokens': 2,
                 'cached_input_tokens': None,
+                'cache_write_input_tokens': None,
                 'reasoning_output_tokens': None,
             },
             'raw_tokens': 12,
@@ -61,13 +62,16 @@ class RecordTests(unittest.TestCase):
             summary = mod.summarize(rows)
             self.assertEqual(summary['runs'], 2)
             self.assertEqual(summary['overall']['gateway']['principal_tokens']['median'], 12)
+            self.assertAlmostEqual(summary['overall']['gateway']['selected_source_ratio']['median'], .2)
 
     def test_unknown_tokens_remain_null(self):
         value = row()
         value['principal']['raw_tokens'] = None
         value['principal']['usage'] = None
         mod.validate(value)
-        self.assertIsNone(mod.summarize([value])['overall']['gateway']['principal_tokens']['median'])
+        summary = mod.summarize([value])['overall']['gateway']
+        self.assertIsNone(summary['principal_tokens']['median'])
+        self.assertEqual(summary['unknown_principal_usage'], 1)
 
     def test_duplicate_ids_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -100,11 +104,23 @@ class RecordTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mod.validate(value)
 
+    def test_cache_write_usage_is_supported(self):
+        value = row()
+        value['principal']['usage']['cache_write_input_tokens'] = 3
+        mod.validate(value)
+
     def test_selected_source_math_fixture(self):
         value = row()
         value['context'] = {'source_bytes': 1000, 'selected_bytes': 250, 'result_bytes': 100}
         mod.validate(value)
+        summary = mod.summarize([value])['overall']['gateway']
         self.assertEqual(value['context']['selected_bytes'] / value['context']['source_bytes'], .25)
+        self.assertEqual(summary['selected_source_ratio']['median'], .25)
+
+    def test_zero_source_has_unknown_ratio(self):
+        value = row()
+        value['context'] = {'source_bytes': 0, 'selected_bytes': 0, 'result_bytes': 0}
+        self.assertIsNone(mod.summarize([value])['overall']['gateway']['selected_source_ratio']['median'])
 
     def test_windows_path_serializes(self):
         value = row()
