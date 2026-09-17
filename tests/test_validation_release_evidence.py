@@ -57,6 +57,18 @@ class ReleaseEvidenceTests(unittest.TestCase):
         _,gate=mod.causal_gate(rows,'gateway-local','gateway-jev',1,'jev')
         self.assertTrue(gate['pass'])
 
+    def test_causal_gate_rejects_swapped_quality_regression(self):
+        rows=[
+            row('a','targeted','gateway-local',success=True),
+            row('a','targeted','gateway-jev',success=False,router=True),
+            row('b','targeted','gateway-local',success=False),
+            row('b','targeted','gateway-jev',success=True,router=True),
+        ]
+        _,gate=mod.causal_gate(rows,'gateway-local','gateway-jev',2,'jev')
+        self.assertEqual(gate['left_successes'],gate['right_successes'])
+        self.assertFalse(gate['pass'])
+        self.assertEqual(len(gate['regression_run_ids']),1)
+
     def test_activation_artifact_is_required_and_fail_closed(self):
         good={'schema':'io-context-activation-evidence/v1','pass':True,'pairs':15,
               'false_enable_run_ids':[],'unexpected_call_run_ids':[],'context_leak_run_ids':[]}
