@@ -1,0 +1,724 @@
+{
+  "version": 1,
+  "seed": 20260919,
+  "repetitions": 5,
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "timeout_seconds": 600,
+  "worker_config": "${IO_WORKER_CONFIG}",
+  "repositories": {
+    "camara": {
+      "path": "${CAMARA_REPO}",
+      "commit": "02f124a6938a4e8864dffc98fb12253f55267d75"
+    },
+    "kuatrometric": {
+      "path": "${KUATROMETRIC_REPO}",
+      "commit": "943f27329d850ff7af3f3e336fa0c6503033d8f4"
+    },
+    "steroid": {
+      "path": "${STEROID_REPO}",
+      "commit": "0fcbffd1660668062156600a0098cc0a9927fa97"
+    }
+  },
+  "tasks": [
+    {
+      "id": "worker-camara-use-client",
+      "repo": "camara",
+      "question": "For the selected evidence only, count every literal 'use client' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
+      "prompt": "Create only benchmark-output/worker-camara-use-client.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'use client', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "output": "benchmark-output/worker-camara-use-client.json",
+      "allow_files": [
+        "src/app/socios/page.tsx",
+        "src/components/AlmuerzoGaleria.tsx",
+        "src/components/AlmuerzoTradicional.tsx",
+        "src/components/AlmuerzoTransmision.tsx",
+        "src/components/AnimatedCardImage.tsx",
+        "src/components/AnimatedImage.tsx",
+        "src/components/AnimatedSection.tsx",
+        "src/components/AnimatedSectionTitle.tsx",
+        "src/components/AnimatedText.tsx",
+        "src/components/AnimatedTitle.tsx"
+      ],
+      "selections": [
+        {
+          "path": "src/app/socios/page.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoGaleria.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoTradicional.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoTransmision.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AnimatedCardImage.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AnimatedImage.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AnimatedSection.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AnimatedSectionTitle.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AnimatedText.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AnimatedTitle.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "use client",
+            "window": 256,
+            "max_regions": 4
+          }
+        }
+      ],
+      "validator": [
+        [
+          "{python}",
+          "{validation_root}/validators.py",
+          "--root",
+          ".",
+          "--output",
+          "benchmark-output/worker-camara-use-client.json",
+          "--mode",
+          "literal-files",
+          "--literal",
+          "use client",
+          "--ext",
+          ".tsx",
+          "--scope-file",
+          "src/app/socios/page.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoGaleria.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoTradicional.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoTransmision.tsx",
+          "--scope-file",
+          "src/components/AnimatedCardImage.tsx",
+          "--scope-file",
+          "src/components/AnimatedImage.tsx",
+          "--scope-file",
+          "src/components/AnimatedSection.tsx",
+          "--scope-file",
+          "src/components/AnimatedSectionTitle.tsx",
+          "--scope-file",
+          "src/components/AnimatedText.tsx",
+          "--scope-file",
+          "src/components/AnimatedTitle.tsx"
+        ]
+      ]
+    },
+    {
+      "id": "worker-camara-next-image",
+      "repo": "camara",
+      "question": "For the selected evidence only, count every literal 'next/image' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
+      "prompt": "Create only benchmark-output/worker-camara-next-image.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'next/image', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "output": "benchmark-output/worker-camara-next-image.json",
+      "allow_files": [
+        "src/components/AlmuerzoContent.tsx",
+        "src/components/AlmuerzoDiscurso.tsx",
+        "src/components/AlmuerzoGaleria.tsx",
+        "src/components/AlmuerzoHero.tsx",
+        "src/components/AlmuerzoMomentosHistoricos.tsx",
+        "src/components/AlmuerzoReconocimientos.tsx",
+        "src/components/AlmuerzoTradicional.tsx",
+        "src/components/AlmuerzoTransmision.tsx",
+        "src/components/BeneficiosGrid.tsx",
+        "src/components/Header.tsx"
+      ],
+      "selections": [
+        {
+          "path": "src/components/AlmuerzoContent.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoDiscurso.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoGaleria.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoHero.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoMomentosHistoricos.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoReconocimientos.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoTradicional.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/AlmuerzoTransmision.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/BeneficiosGrid.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/components/Header.tsx",
+          "select": {
+            "kind": "literal",
+            "needle": "next/image",
+            "window": 256,
+            "max_regions": 4
+          }
+        }
+      ],
+      "validator": [
+        [
+          "{python}",
+          "{validation_root}/validators.py",
+          "--root",
+          ".",
+          "--output",
+          "benchmark-output/worker-camara-next-image.json",
+          "--mode",
+          "literal-files",
+          "--literal",
+          "next/image",
+          "--ext",
+          ".tsx",
+          "--scope-file",
+          "src/components/AlmuerzoContent.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoDiscurso.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoGaleria.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoHero.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoMomentosHistoricos.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoReconocimientos.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoTradicional.tsx",
+          "--scope-file",
+          "src/components/AlmuerzoTransmision.tsx",
+          "--scope-file",
+          "src/components/BeneficiosGrid.tsx",
+          "--scope-file",
+          "src/components/Header.tsx"
+        ]
+      ]
+    },
+    {
+      "id": "worker-kuatrometric-header",
+      "repo": "kuatrometric",
+      "question": "For the selected evidence only, count every literal 'assets/site-header.js' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
+      "prompt": "Create only benchmark-output/worker-kuatrometric-header.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'assets/site-header.js', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "output": "benchmark-output/worker-kuatrometric-header.json",
+      "allow_files": [
+        "404.html",
+        "casos-de-exito/autotransportes-iselin-tivo/index.html",
+        "casos-de-exito/camara-de-comercio-san-rafael/index.html",
+        "casos-de-exito/global-solutions/index.html",
+        "casos-de-exito/greenlife/index.html",
+        "casos-de-exito/index.html",
+        "casos-de-exito/priam-obras-civiles/index.html",
+        "casos-de-exito/saldoar/index.html",
+        "herramientas/atlas/index.html",
+        "servicios/index.html"
+      ],
+      "selections": [
+        {
+          "path": "404.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "casos-de-exito/autotransportes-iselin-tivo/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "casos-de-exito/camara-de-comercio-san-rafael/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "casos-de-exito/global-solutions/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "casos-de-exito/greenlife/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "casos-de-exito/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "casos-de-exito/priam-obras-civiles/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "casos-de-exito/saldoar/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "herramientas/atlas/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "servicios/index.html",
+          "select": {
+            "kind": "literal",
+            "needle": "assets/site-header.js",
+            "window": 256,
+            "max_regions": 4
+          }
+        }
+      ],
+      "validator": [
+        [
+          "{python}",
+          "{validation_root}/validators.py",
+          "--root",
+          ".",
+          "--output",
+          "benchmark-output/worker-kuatrometric-header.json",
+          "--mode",
+          "literal-files",
+          "--literal",
+          "assets/site-header.js",
+          "--ext",
+          ".html",
+          "--scope-file",
+          "404.html",
+          "--scope-file",
+          "casos-de-exito/autotransportes-iselin-tivo/index.html",
+          "--scope-file",
+          "casos-de-exito/camara-de-comercio-san-rafael/index.html",
+          "--scope-file",
+          "casos-de-exito/global-solutions/index.html",
+          "--scope-file",
+          "casos-de-exito/greenlife/index.html",
+          "--scope-file",
+          "casos-de-exito/index.html",
+          "--scope-file",
+          "casos-de-exito/priam-obras-civiles/index.html",
+          "--scope-file",
+          "casos-de-exito/saldoar/index.html",
+          "--scope-file",
+          "herramientas/atlas/index.html",
+          "--scope-file",
+          "servicios/index.html"
+        ]
+      ]
+    },
+    {
+      "id": "worker-steroid-src-child-process",
+      "repo": "steroid",
+      "question": "For the selected evidence only, count every literal 'child_process' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
+      "prompt": "Create only benchmark-output/worker-steroid-src-child-process.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'child_process', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "output": "benchmark-output/worker-steroid-src-child-process.json",
+      "allow_files": [
+        "src/main/codex/unified-exec.ts",
+        "src/main/computer/index.ts",
+        "src/main/exec.ts",
+        "src/main/plugins/installer.ts",
+        "src/main/search.ts",
+        "src/main/tunnel/index.ts",
+        "src/main/update.ts"
+      ],
+      "selections": [
+        {
+          "path": "src/main/codex/unified-exec.ts",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/main/computer/index.ts",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/main/exec.ts",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/main/plugins/installer.ts",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/main/search.ts",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/main/tunnel/index.ts",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "src/main/update.ts",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        }
+      ],
+      "validator": [
+        [
+          "{python}",
+          "{validation_root}/validators.py",
+          "--root",
+          ".",
+          "--output",
+          "benchmark-output/worker-steroid-src-child-process.json",
+          "--mode",
+          "literal-files",
+          "--literal",
+          "child_process",
+          "--ext",
+          ".ts",
+          "--scope-file",
+          "src/main/codex/unified-exec.ts",
+          "--scope-file",
+          "src/main/computer/index.ts",
+          "--scope-file",
+          "src/main/exec.ts",
+          "--scope-file",
+          "src/main/plugins/installer.ts",
+          "--scope-file",
+          "src/main/search.ts",
+          "--scope-file",
+          "src/main/tunnel/index.ts",
+          "--scope-file",
+          "src/main/update.ts"
+        ]
+      ]
+    },
+    {
+      "id": "worker-steroid-script-child-process",
+      "repo": "steroid",
+      "question": "For the selected evidence only, count every literal 'child_process' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
+      "prompt": "Create only benchmark-output/worker-steroid-script-child-process.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'child_process', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "output": "benchmark-output/worker-steroid-script-child-process.json",
+      "allow_files": [
+        "scripts/afterpack-macos-adhoc-seal.mjs",
+        "scripts/fetch-ripgrep.mjs",
+        "scripts/fetch-tunnel-client.mjs",
+        "scripts/install-git-hooks.mjs",
+        "scripts/kill-stray-vitest.mjs",
+        "scripts/package-native-sources.mjs",
+        "scripts/package.mjs",
+        "scripts/prepare-macos-desktop-helper.mjs",
+        "scripts/prepare-packaging-native.mjs",
+        "scripts/smoke-macos-bundle.mjs"
+      ],
+      "selections": [
+        {
+          "path": "scripts/afterpack-macos-adhoc-seal.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/fetch-ripgrep.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/fetch-tunnel-client.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/install-git-hooks.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/kill-stray-vitest.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/package-native-sources.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/package.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/prepare-macos-desktop-helper.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/prepare-packaging-native.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        },
+        {
+          "path": "scripts/smoke-macos-bundle.mjs",
+          "select": {
+            "kind": "literal",
+            "needle": "child_process",
+            "window": 256,
+            "max_regions": 4
+          }
+        }
+      ],
+      "validator": [
+        [
+          "{python}",
+          "{validation_root}/validators.py",
+          "--root",
+          ".",
+          "--output",
+          "benchmark-output/worker-steroid-script-child-process.json",
+          "--mode",
+          "literal-files",
+          "--literal",
+          "child_process",
+          "--ext",
+          ".mjs",
+          "--scope-file",
+          "scripts/afterpack-macos-adhoc-seal.mjs",
+          "--scope-file",
+          "scripts/fetch-ripgrep.mjs",
+          "--scope-file",
+          "scripts/fetch-tunnel-client.mjs",
+          "--scope-file",
+          "scripts/install-git-hooks.mjs",
+          "--scope-file",
+          "scripts/kill-stray-vitest.mjs",
+          "--scope-file",
+          "scripts/package-native-sources.mjs",
+          "--scope-file",
+          "scripts/package.mjs",
+          "--scope-file",
+          "scripts/prepare-macos-desktop-helper.mjs",
+          "--scope-file",
+          "scripts/prepare-packaging-native.mjs",
+          "--scope-file",
+          "scripts/smoke-macos-bundle.mjs"
+        ]
+      ]
+    }
+  ]
+}
