@@ -57,6 +57,16 @@ class ReleaseEvidenceTests(unittest.TestCase):
         _,gate=mod.causal_gate(rows,'gateway-local','gateway-jev',1,'jev')
         self.assertTrue(gate['pass'])
 
+    def test_activation_artifact_is_required_and_fail_closed(self):
+        good={'schema':'io-context-activation-evidence/v1','pass':True,'pairs':15,
+              'false_enable_run_ids':[],'unexpected_call_run_ids':[],'context_leak_run_ids':[]}
+        self.assertTrue(mod.activation_gate(good)['pass'])
+        bad=dict(good); bad['pass']=False; bad['false_enable_run_ids']=['x']
+        gate=mod.activation_gate(bad)
+        self.assertFalse(gate['pass']); self.assertEqual(gate['false_enables'],1)
+        wrong=dict(good); wrong['schema']='unknown'
+        self.assertFalse(mod.activation_gate(wrong)['pass'])
+
     def test_release_is_fail_closed_on_security(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
@@ -77,13 +87,17 @@ class ReleaseEvidenceTests(unittest.TestCase):
             for name,rows in [('dog.jsonl',dog),('jev.jsonl',jev),('worker.jsonl',worker)]:
                 path=root/name
                 for item in rows: record.append(path,item)
+            (root/'activation.json').write_text(json.dumps({
+                'schema':'io-context-activation-evidence/v1','pass':True,'pairs':15,
+                'false_enable_run_ids':[],'unexpected_call_run_ids':[],'context_leak_run_ids':[]}),encoding='utf-8')
             (root/'parity.json').write_text(json.dumps({'schema':'io-context-host-parity/v1','critical_deviations':0}),encoding='utf-8')
             (root/'security.json').write_text(json.dumps({'schema':'io-context-security-audit/v1','clean':False,'secret_hits':[{'env':'X'}],'forbidden_event_fields':[],'malformed_jsonl':[]}),encoding='utf-8')
             class Args: pass
-            a=Args(); a.dogfood_records=root/'dog.jsonl'; a.jev_records=root/'jev.jsonl'; a.worker_records=root/'worker.jsonl'; a.parity=root/'parity.json'; a.security=root/'security.json'
+            a=Args(); a.dogfood_records=root/'dog.jsonl'; a.activation=root/'activation.json'; a.jev_records=root/'jev.jsonl'; a.worker_records=root/'worker.jsonl'; a.parity=root/'parity.json'; a.security=root/'security.json'
             a.dogfood_left='control'; a.dogfood_right='gateway-smart'; a.jev_left='gateway-local'; a.jev_right='gateway-jev'; a.worker_left='direct-selected'; a.worker_right='semantic-worker'
             a.small_overhead_pct=5.; a.context_ratio=.5; a.min_jev_pairs=20; a.min_worker_pairs=5
             result=mod.evaluate(a)
             self.assertFalse(result['ready']); self.assertFalse(result['gates']['security_audit']['pass'])
+            self.assertTrue(result['gates']['activation_gate']['pass'])
 
 if __name__=='__main__': unittest.main()
