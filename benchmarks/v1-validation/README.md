@@ -20,7 +20,7 @@ This directory is the common evidence pipeline for dogfood, repeated routing A/B
 - `validators.py` — independent static gold calculation for real repositories.
 - `run_real.py` — expands machine-local environment variables without committing local paths.
 - `preflight_real.py` — computes every real-task gold at pinned commits with zero model calls.
-- `host_validation.py` — authenticated Claude Code / Cursor headless host runner.
+- `host_validate.py` — authenticated Claude Code / Cursor headless host runner.
 - `dogfood.real.template.json` — 20 tasks across 3 real repositories.
 
 ## Real dogfood
@@ -85,7 +85,7 @@ For worker-only measurement, keep Jev fixed/disabled and compare direct selected
 
 ## Host validation
 
-`host_validation.py` supports `claude` and Cursor `agent` once those hosts are installed and authenticated. It does not use skip-all-permissions flags. Run the same deterministic/targeted/principal/multi-file mix and store results via `record.py` before closing #8.
+`host_validate.py` supports `claude` and Cursor `agent` once those hosts are installed and authenticated. It does not use skip-all-permissions flags. Run the same deterministic/targeted/principal/multi-file mix and store results via `record.py` before closing #8.
 
 ## Security
 
