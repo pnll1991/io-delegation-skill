@@ -39,6 +39,7 @@ FAMILIES = {
     'large-understanding', 'multi-file-factual', 'cross-file-behavior',
     'principal', 'small-control', 'targeted', 'worker-eligible',
 }
+VALIDATOR_TAIL_BYTES = 4_000
 
 
 def read_json(path):
@@ -67,6 +68,34 @@ def format_value(value, context):
     return text
 
 
+def _validator_tail(raw):
+    if not raw:
+        return ''
+    if isinstance(raw, str):
+        text = raw
+        raw_bytes = raw.encode('utf-8', errors='replace')
+    else:
+        raw_bytes = bytes(raw)
+        text = raw_bytes.decode('utf-8', errors='replace')
+    # Keep only a bounded diagnostic tail. Secrets are removed before persistence.
+    tail = text[-VALIDATOR_TAIL_BYTES:]
+    return run_record.redact(tail)
+
+
+def _validator_result(cp):
+    row = {'ok': cp.returncode == 0, 'exit_code': cp.returncode}
+    if cp.returncode:
+        row['stdout_sha256'] = hashlib.sha256(cp.stdout or b'').hexdigest()
+        row['stderr_sha256'] = hashlib.sha256(cp.stderr or b'').hexdigest()
+        stdout_tail = _validator_tail(cp.stdout)
+        stderr_tail = _validator_tail(cp.stderr)
+        if stdout_tail:
+            row['stdout_tail'] = stdout_tail
+        if stderr_tail:
+            row['stderr_tail'] = stderr_tail
+    return row
+
+
 def run_checks(worktree, commands, context, timeout=180):
     rows = []
     for entry in commands:
@@ -79,9 +108,16 @@ def run_checks(worktree, commands, context, timeout=180):
             raise ValueError('validator commands must be strings or non-empty argv arrays')
         try:
             cp = subprocess.run(argv, cwd=worktree, capture_output=True, timeout=timeout)
-            rows.append({'ok': cp.returncode == 0, 'exit_code': cp.returncode})
-        except subprocess.TimeoutExpired:
-            rows.append({'ok': False, 'timeout': True})
+            rows.append(_validator_result(cp))
+        except subprocess.TimeoutExpired as exc:
+            row = {'ok': False, 'timeout': True}
+            stdout_tail = _validator_tail(exc.output)
+            stderr_tail = _validator_tail(exc.stderr)
+            if stdout_tail:
+                row['stdout_tail'] = stdout_tail
+            if stderr_tail:
+                row['stderr_tail'] = stderr_tail
+            rows.append(row)
         except OSError as exc:
             rows.append({'ok': False, 'error': type(exc).__name__})
     return bool(rows) and all(row['ok'] for row in rows), rows
@@ -246,10 +282,19 @@ def read_query_metrics(audit):
 def usage_object(summary):
     if summary is None:
         return None
-    keys = ('input_tokens', 'output_tokens', 'cached_input_tokens', 'reasoning_output_tokens')
+    keys = ('input_tokens', 'output_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'reasoning_output_tokens')
     if not all(key in summary for key in ('input_tokens', 'output_tokens')):
         return None
     return {key: summary.get(key) for key in keys}
+
+
+def run_conditions(principal, activation):
+    return {
+        'principal_process': 'cold',
+        'context_cache': 'cold' if activation.get('decision') == 'enable' else 'disabled',
+        'provider_cache': 'reported' if principal.get('cached_input_tokens') is not None else 'unreported',
+        'worktree': 'fresh',
+    }
 
 
 def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out_root, keep_raw=False):
@@ -265,7 +310,6 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
     git(repo['path'], 'worktree', 'add', '--detach', str(worktree), repo['commit'])
     started_epoch = time.time()
     started = time.monotonic()
-    codex_result = None
     activation = None
     validator_ok = False
     validator_rows = []
@@ -323,11 +367,9 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
         timeout = int(task.get('timeout_seconds', manifest.get('timeout_seconds', 600)))
         cp = run_process(command, cwd=worktree, payload=prompt.encode('utf-8'), timeout=timeout, max_output=24_000_000)
         wall_ms = round((time.monotonic() - started) * 1000)
+        raw_path.write_bytes(cp.stdout)
         if keep_raw:
-            raw_path.write_bytes(cp.stdout)
             stderr_path.write_bytes(cp.stderr)
-        else:
-            raw_path.write_bytes(cp.stdout)
 
         context = {
             'worktree': str(worktree),
@@ -365,6 +407,7 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
                 'input_tokens': query['router_input_tokens'],
                 'output_tokens': query['router_output_tokens'],
                 'cached_input_tokens': None,
+                'cache_write_input_tokens': None,
                 'reasoning_output_tokens': None,
             }
         worker_usage = worker_summary.get('usage') if worker_summary.get('calls') else None
@@ -373,10 +416,11 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
                 'input_tokens': worker_usage.get('input_tokens'),
                 'output_tokens': worker_usage.get('output_tokens'),
                 'cached_input_tokens': worker_usage.get('cached_input_tokens'),
+                'cache_write_input_tokens': worker_usage.get('cache_write_input_tokens'),
                 'reasoning_output_tokens': worker_usage.get('reasoning_output_tokens'),
             }
 
-        record = {
+        result_record = {
             'schema': run_record.SCHEMA,
             'run_id': run_id,
             'task_id': task['id'],
@@ -427,16 +471,16 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
                 'status': 'pass' if validator_ok else 'fail',
                 'checks': len(validator_rows),
             },
+            'conditions': run_conditions(principal, activation),
             'rework': 0,
             'errors': errors,
             'notes': '',
             'tags': list(task.get('tags', [])),
         }
-        run_record.append(out_root / 'runs.jsonl', record)
-        write_json(run_dir / 'record.json', run_record.sanitized(record))
+        run_record.append(out_root / 'runs.jsonl', result_record)
+        write_json(run_dir / 'record.json', run_record.sanitized(result_record))
         write_json(run_dir / 'validator.json', validator_rows)
-        codex_result = record
-        return record
+        return result_record
     finally:
         if raw_path.exists() and not keep_raw:
             raw_path.unlink()
