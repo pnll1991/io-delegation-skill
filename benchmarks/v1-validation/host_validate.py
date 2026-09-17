@@ -373,6 +373,8 @@ def preflight(host, project, io_command='io-delegation'):
     )
     if mcp.returncode:
         raise ValueError('host does not report io_context MCP as available')
+    if host == 'codex' and 'io_context' not in (mcp.stdout + mcp.stderr):
+        raise ValueError('Codex MCP list does not contain io_context')
     return project, project_audit_root(project)
 
 
