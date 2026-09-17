@@ -33,10 +33,12 @@ class SemanticTests(unittest.TestCase):
         self.args=dict(selections=[dict(path='a.txt',select=dict(kind='lines',start=1,end=1))],question='What value?')
 
     def run_call(self):
-        return json.loads(self.service.call('semantic_query',self.args)['content'][0]['text'])
+        result,_metrics=self.service.engine.run(self.args)
+        return result
 
-    def test_semantic_advertised_only_approved(self):
-        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract','query','semantic_query'])
+    def test_semantic_engine_is_internal_and_requires_approval(self):
+        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract','query'])
+        self.assertNotIn('semantic_query',self.service.tool_names())
         self.config.write_text('{"approved":false}')
         with self.assertRaises(DelegateError):ContextService(self.root,self.audit,files=['a.txt'],config=self.config)
 
