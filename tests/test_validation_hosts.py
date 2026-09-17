@@ -84,5 +84,40 @@ class HostValidationTests(unittest.TestCase):
             self.assertFalse(observed['router_called'])
 
 
+    def test_cursor_command_uses_ask_mode(self):
+        command=mod.build_command('cursor','.','hello')
+        self.assertIn('--mode',command)
+        self.assertEqual(command[command.index('--mode')+1],'ask')
+
+    def test_suite_accepts_read_only_expected_json(self):
+        cases=[{'id':str(i),'prompt':'p','expected_json':{'value':i},'expected_route':'principal'} for i in range(4)]
+        self.assertEqual(len(mod.validate_suite({'version':1,'cases':cases})['cases']),4)
+
+    def test_answer_validator_parses_claude_result_string(self):
+        raw=json.dumps({'type':'result','result':'{"value":7}'}).encode()
+        ok,checks=mod.answer_validator(raw,{'value':7})
+        self.assertTrue(ok); self.assertEqual(checks[0]['candidate_count'],1)
+
+    def test_answer_validator_parses_nested_cursor_text(self):
+        raw=json.dumps({'result':{'message':{'content':'```json\n{"value":7}\n```'}}}).encode()
+        ok,_=mod.answer_validator(raw,{'value':7})
+        self.assertTrue(ok)
+
+    def test_answer_validator_mismatch_reports_no_answer_content(self):
+        secret='DO_NOT_ECHO_THIS'
+        raw=json.dumps({'result':'{"secret":"'+secret+'"}'}).encode()
+        ok,checks=mod.answer_validator(raw,{'value':7})
+        self.assertFalse(ok)
+        self.assertNotIn(secret,json.dumps(checks))
+
+    def test_usage_parser_supports_cursor_camel_case(self):
+        raw=b'{"usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":4,"cacheWriteTokens":1}}'
+        usage=mod.parse_usage(raw)
+        self.assertEqual(usage['input_tokens'],10)
+        self.assertEqual(usage['output_tokens'],2)
+        self.assertEqual(usage['cached_input_tokens'],4)
+        self.assertEqual(usage['cache_write_input_tokens'],1)
+
+
 if __name__ == '__main__':
     unittest.main()

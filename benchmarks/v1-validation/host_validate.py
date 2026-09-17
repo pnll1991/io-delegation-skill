@@ -18,7 +18,10 @@ SCRIPTS = ROOT / 'skills' / 'io-delegation' / 'scripts'
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(HERE))
 import context_telemetry
+import io_delegate
 import record
+import validators as static_validators
+from worker_runtime import run_process
 
 PROJECT_ID_RE = re.compile(r'^[0-9a-f]{12,32}$')
 
@@ -43,7 +46,7 @@ def build_command(host, project, prompt, model=None):
         return command
     if host == 'cursor':
         exe = shutil.which('agent') or 'agent'
-        command = [exe, '-p', prompt, '--output-format', 'json', '--workspace', project]
+        command = [exe, '-p', prompt, '--output-format', 'json', '--mode', 'ask', '--workspace', project]
         if model:
             command += ['--model', model]
         return command
@@ -92,7 +95,8 @@ def parse_usage(raw):
     candidates = []
     def walk(item):
         if isinstance(item, dict):
-            if 'input_tokens' in item and 'output_tokens' in item:
+            if (('input_tokens' in item and 'output_tokens' in item) or
+                ('inputTokens' in item and 'outputTokens' in item)):
                 candidates.append(item)
             for child in item.values():
                 walk(child)
@@ -103,19 +107,63 @@ def parse_usage(raw):
     if not candidates:
         return None
     item = candidates[-1]
-    def integer(name):
-        value = item.get(name)
-        return value if type(value) is int and value >= 0 else None
+    def integer(*names):
+        for name in names:
+            value=item.get(name)
+            if type(value) is int and value >= 0: return value
+        return None
     result = {
-        'input_tokens': integer('input_tokens'),
-        'output_tokens': integer('output_tokens'),
-        'cached_input_tokens': integer('cached_input_tokens'),
-        'reasoning_output_tokens': integer('reasoning_output_tokens'),
+        'input_tokens': integer('input_tokens','inputTokens'),
+        'output_tokens': integer('output_tokens','outputTokens'),
+        'cached_input_tokens': integer('cached_input_tokens','cacheReadTokens'),
+        'cache_write_input_tokens': integer('cache_write_input_tokens','cacheWriteTokens'),
+        'reasoning_output_tokens': integer('reasoning_output_tokens','reasoningOutputTokens'),
     }
     if result['input_tokens'] is None or result['output_tokens'] is None:
         return None
     return result
 
+
+
+def _parsed_output_values(raw):
+    if len(raw) > 8_000_000:
+        return []
+    text=raw.decode('utf-8-sig',errors='replace').strip()
+    values=[]
+    if not text: return values
+    try: values.append(json.loads(text))
+    except ValueError:
+        for line in text.splitlines():
+            try: values.append(json.loads(line))
+            except ValueError: continue
+    return values
+
+
+def _answer_candidates(value):
+    result=[]
+    def add(item):
+        if isinstance(item,dict): result.append(item)
+        elif isinstance(item,str):
+            try:
+                parsed=json.loads(io_delegate.unwrap(item.lstrip('\ufeff').strip()))
+            except (ValueError,TypeError): return
+            if isinstance(parsed,dict): result.append(parsed)
+    def walk(item):
+        if isinstance(item,dict):
+            for key in ('result','final','answer','text','content','message'):
+                if key in item: add(item[key])
+            for child in item.values(): walk(child)
+        elif isinstance(item,list):
+            for child in item: walk(child)
+    walk(value); return result
+
+
+def answer_validator(raw,expected):
+    expected=static_validators.normalize(expected)
+    candidates=[]
+    for value in _parsed_output_values(raw): candidates.extend(_answer_candidates(value))
+    matched=any(static_validators.normalize(item)==expected for item in candidates)
+    return matched,[{'ok':matched,'kind':'assistant_json','candidate_count':len(candidates)}]
 
 def project_audit_root(project):
     project = Path(project).resolve(strict=True)
@@ -265,8 +313,12 @@ def validate_suite(data):
     for case in cases:
         if not isinstance(case.get('prompt'), str) or not case['prompt']:
             raise ValueError('case prompt required')
-        if not isinstance(case.get('validator'), list) or not case['validator']:
-            raise ValueError('case validator required')
+        expected=case.get('expected_json')
+        commands=case.get('validator')
+        if expected is None and (not isinstance(commands,list) or not commands):
+            raise ValueError('case validator or expected_json required')
+        if expected is not None and not isinstance(expected,dict):
+            raise ValueError('expected_json must be an object')
         if case.get('expected_route') not in ('deterministic','targeted_read','bulk_read','principal'):
             raise ValueError('case expected_route required')
     return data
@@ -286,9 +338,12 @@ def run_suite(host, project, audit, suite, output, model=None):
         before = audit_snapshot(audit)
         started_epoch = time.time()
         started = time.monotonic()
-        cp = subprocess.run(command, cwd=project, capture_output=True, timeout=int(case.get('timeout_seconds', 600)))
+        cp = run_process(command, cwd=project, timeout=int(case.get('timeout_seconds', 600)), max_output=8_000_000)
         wall_ms = round((time.monotonic() - started) * 1000)
-        ok, checks = validator(project, case['validator'], int(case.get('validator_timeout_seconds', 120)))
+        if case.get('expected_json') is not None:
+            ok, checks = answer_validator(cp.stdout, case['expected_json'])
+        else:
+            ok, checks = validator(project, case['validator'], int(case.get('validator_timeout_seconds', 120)))
         usage = parse_usage(cp.stdout)
         raw_tokens = None
         if usage and usage['input_tokens'] is not None and usage['output_tokens'] is not None:
@@ -297,9 +352,11 @@ def run_suite(host, project, audit, suite, output, model=None):
         worker = observed_worker(audit, before)
         expected = case['expected_route']
         route_ok = context['route'] == expected
-        success = cp.returncode == 0 and ok and route_ok and context['malformed_delta'] == 0
+        success = cp.returncode == 0 and not cp.timed_out and not cp.oversized and ok and route_ok and context['malformed_delta'] == 0
         errors = []
         if cp.returncode: errors.append('host_nonzero_exit')
+        if cp.timed_out: errors.append('host_timeout')
+        if cp.oversized: errors.append('host_output_limit')
         if not ok: errors.append('validator_failed')
         if not route_ok: errors.append('route_mismatch')
         if context['malformed_delta']: errors.append('audit_malformed')
