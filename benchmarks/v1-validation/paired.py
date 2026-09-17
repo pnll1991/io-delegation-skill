@@ -30,6 +30,15 @@ def get(row, *path):
     return current
 
 
+def agent_system_tokens(row):
+    principal=get(row,'principal','raw_tokens')
+    calls=get(row,'worker','calls') or 0
+    worker=get(row,'worker','raw_tokens')
+    if type(principal) is not int: return None
+    if not calls: return principal
+    return principal+worker if type(worker) is int else None
+
+
 def pair_rows(rows, left, right):
     grouped = {}
     for row in rows:
@@ -89,6 +98,8 @@ def summarize(rows, left, right):
             'valid_pairs': 0,
             'principal_token_delta': [],
             'principal_token_delta_pct': [],
+            'agent_system_token_delta': [],
+            'agent_system_token_delta_pct': [],
             'wall_ms_delta': [],
             'selected_bytes_delta': [],
             'jev_called_pairs': 0,
@@ -105,6 +116,9 @@ def summarize(rows, left, right):
             rt = get(rhs, 'principal', 'raw_tokens')
             item['principal_token_delta'].append(delta(lt, rt))
             item['principal_token_delta_pct'].append(percent_delta(lt, rt))
+            ls=agent_system_tokens(lhs); rs=agent_system_tokens(rhs)
+            item['agent_system_token_delta'].append(delta(ls,rs))
+            item['agent_system_token_delta_pct'].append(percent_delta(ls,rs))
             item['wall_ms_delta'].append(delta(get(lhs, 'timing', 'wall_ms'), get(rhs, 'timing', 'wall_ms')))
             item['selected_bytes_delta'].append(delta(get(lhs, 'context', 'selected_bytes'), get(rhs, 'context', 'selected_bytes')))
         item['jev_called_pairs'] += get(rhs, 'router', 'called') is True
@@ -127,6 +141,8 @@ def summarize(rows, left, right):
             'right_successes': item['right_successes'],
             'principal_token_delta': distribution(item['principal_token_delta']),
             'principal_token_delta_pct': distribution(item['principal_token_delta_pct']),
+            'agent_system_token_delta': distribution(item['agent_system_token_delta']),
+            'agent_system_token_delta_pct': distribution(item['agent_system_token_delta_pct']),
             'wall_ms_delta': distribution(item['wall_ms_delta']),
             'selected_bytes_delta': distribution(item['selected_bytes_delta']),
             'jev_called_pairs': item['jev_called_pairs'],
