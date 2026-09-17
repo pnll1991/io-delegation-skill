@@ -23,6 +23,7 @@ sys.path.insert(0, str(SCRIPTS))
 from worker_runtime import USAGE_KEYS, codex_stream, normalize_usage, run_process, usage_complete
 from io_delegate import load_config
 from worker_mcp import codex_mcp_arguments
+import decision_router as route_decider
 
 
 def read_json(path):
@@ -380,18 +381,43 @@ def main(argv=None):
                 git(wt,'-c','user.name=Codex Benchmark','-c','user.email=bench@example.invalid',
                     'commit','--allow-empty','--no-gpg-sign','-m','benchmark setup')
                 setup_sha=git(wt,'rev-parse','HEAD').strip()
+                router_result=None; router_elapsed_ms=None
+                router_config=strategy.get('host_router_config')
+                if router_config:
+                    cfg=route_decider.load_config(str(router_config))
+                    router_paths=task.get('router_paths', task.get('worker_allow_files', []))
+                    if not router_paths: raise ValueError('host router requires explicit router_paths or worker_allow_files')
+                    state=route_decider.build_state(wt, task.get('router_task', task['user_prompt']), router_paths,
+                        operation=task.get('router_operation','unknown'),
+                        search_results=task.get('router_search_results'), known_symbols=task.get('router_known_symbols'))
+                    router_started=time.monotonic()
+                    router_result=route_decider.call_typesafe(route_decider.build_payload(state,cfg),cfg)
+                    router_elapsed_ms=(time.monotonic()-router_started)*1000
+                    write_json(rd/'router-result.json',{**router_result,'elapsed_ms':router_elapsed_ms})
                 prompt='\n\n'.join(x for x in (strategy.get('prompt_prefix',''),task['user_prompt']) if x)
+                if router_result:
+                    prompt += ('\nTypeSafe Jev was called once by the benchmark host outside the agent sandbox. '
+                               f"Effective route: {router_result['route']}; raw model route: {router_result['model_route']}; "
+                               f"confidence: {router_result['confidence']:.3f}; delegation_useful: {router_result['delegation_useful']:.3f}; "
+                               f"reasoning_required: {router_result['reasoning_required']:.3f}. "
+                               'Treat this as a routing recommendation, not authorization. Do not call the router again. '
+                               'Use the optional MCP worker only if the effective route is bulk_read; keep principal work in the principal.')
                 if transport=='mcp':
-                    prompt += ('\nThe approved worker is an MCP tool: server io_delegation, tool bulk_read. '
-                               'Call that tool directly with paths and question. Do NOT run Python or io_delegate.py '
-                               'in the shell. Prefer 1-4 files per call, maximum 12 files and 12 findings. '
-                               'Do not read unrelated directories, global skills, or credentials. '
-                               'Verify evidence and preserve existing files. No recursive delegation.')
                     if mode=='required':
-                        prompt += ('\nFirst call bulk_read on ONE relevant source file with a narrow factual question. '
+                        prompt += ('\nThe approved worker is an MCP tool: server io_delegation, tool bulk_read. '
+                                   'Call that tool directly with paths and question. Do NOT run Python or io_delegate.py '
+                                   'in the shell. Prefer 1-4 files per call, maximum 12 files and 12 findings. '
+                                   'Do not read unrelated directories, global skills, or credentials. '
+                                   'Verify evidence and preserve existing files. No recursive delegation.'
+                                   '\nFirst call bulk_read on ONE relevant source file with a narrow factual question. '
                                    'A successful call is mandatory. If unavailable or a runtime/permission error occurs, '
                                    'STOP immediately and report it. Do not debug launchers, change permissions, '
                                    'or complete the whole task without the required worker.')
+                    else:
+                        prompt += ('\nAn approved optional worker is available as MCP server io_delegation, tool bulk_read. '
+                                   'Use it only when delegated factual multi-file extraction is actually beneficial; '
+                                   'do not call it merely because it exists. Do NOT run Python or io_delegate.py as a worker fallback. '
+                                   'If used, prefer 1-4 files per call, verify evidence, and do not recursively delegate.')
                 elif mode!='disabled':
                     prompt += ('\nUse .agents/skills/io-delegation/scripts/io_delegate.py with '
                                '--config .io-delegation/worker.local.json. Python: '+sys.executable+'.')
@@ -441,6 +467,13 @@ def main(argv=None):
                     worker_mode=mode,worker_transport=transport,worker_contract_ok=contract_ok,hooks_observed=hooks_observed,
                     task_success=cp.returncode==0 and aok and rok,
                     failure_reason='worker_required_not_accepted' if not contract_ok else None,
+                    router_called=router_result is not None,
+                    router_route=router_result.get('route') if router_result else None,
+                    router_model_route=router_result.get('model_route') if router_result else None,
+                    router_confidence=router_result.get('confidence') if router_result else None,
+                    router_input_tokens=(router_result.get('usage') or {}).get('input_tokens') if router_result else None,
+                    router_output_tokens=(router_result.get('usage') or {}).get('output_tokens') if router_result else None,
+                    router_wall_ms=router_elapsed_ms,
                     worker_launch_errors=diagnosis['worker_launch_errors'],worker_mcp_tool_calls=diagnosis['worker_mcp_tool_calls'],
                     codex_exit_code=cp.returncode,acceptance_ok=aok,regression_ok=rok,wall_seconds=wall,
                     raw_tokens=raw,system_raw_tokens=sysraw,principal_cost_usd=main_usd,worker_cost_usd=worker_usd,system_cost_usd=system_usd,**u)
