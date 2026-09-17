@@ -34,8 +34,16 @@ class EvaluationTests(unittest.TestCase):
         if settings:
             cmd=[settings['mcp_servers.io_context.command'],*settings['mcp_servers.io_context.args']]
             semantic='--config' in settings['mcp_servers.io_context.args']
-            tool='semantic_query' if semantic else 'extract'
-            request=(dict(selections=[dict(path='data/values.json',select=dict(kind='lines',start=1,end=1))],question='What configuration is supplied?') if semantic else dict(paths=['data/values.json'],projection=dict(kind='json',pointers=['/service/limit'])))
+            tool='query' if semantic else 'extract'
+            request=(dict(
+                selections=[
+                    dict(path='data/rules.txt',select=dict(kind='lines',start=1,end=1)),
+                    dict(path='data/classification.txt',select=dict(kind='lines',start=1,end=1)),
+                    dict(path='data/page.html',select=dict(kind='span',start=0,end=256)),
+                ],
+                question='What configuration is supplied across these selected fragments?',
+                operation='factual',search_results=3,known_symbols=1
+            ) if semantic else dict(paths=['data/values.json'],projection=dict(kind='json',pointers=['/service/limit'])))
             messages=[dict(jsonrpc='2.0',id=1,method='initialize',params={}),dict(jsonrpc='2.0',id=2,method='tools/call',params=dict(name=tool,arguments=request))]
             cp=subprocess.run(cmd,input=''.join(json.dumps(m)+'\n' for m in messages),capture_output=True,text=True,timeout=10)
             self.assertEqual(cp.returncode,0,cp.stderr);self.assertFalse(json.loads(cp.stdout.splitlines()[-1])['result']['isError'])
@@ -93,7 +101,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(json.loads((self.base/'plan/preflight.json').read_text())['model_calls'],0)
 
     def test_full_simulated_abc_with_real_git_mcp_and_validators(self):
-        stub = "import json,sys; j=json.load(sys.stdin); f=json.loads(j['messages'][1]['content'])['files'][0]; a={'status':'ok','findings':[{'path':f['path'],'symbol':'config','evidence':f['content'].strip()[:120],'fact':'Selected configuration is present'}],'unknowns':[],'read_paths':[f['path']]}; print(json.dumps({'output':json.dumps(a),'usage':{'input_tokens':25,'output_tokens':10}}))"
+        stub = "import json,sys; j=json.load(sys.stdin); fs=json.loads(j['messages'][1]['content'])['files']; findings=[{'path':f['path'],'symbol':'config','evidence':f['content'].strip()[:120],'fact':'Selected configuration is present'} for f in fs]; a={'status':'ok','findings':findings,'unknowns':[],'read_paths':[f['path'] for f in fs]}; print(json.dumps({'output':json.dumps(a),'usage':{'input_tokens':25,'output_tokens':10}}))"
         cfg=self.base/'approved.local.json';cfg.write_text(json.dumps(dict(approved=True,adapter='command',argv=[sys.executable,'-c',stub])))
         self.manifest.update(arms=list(evaluate.ARMS),worker_config=str(cfg))
         rows=evaluate.run(self.manifest,self.base/'runs',True,self.synthetic_executor)
