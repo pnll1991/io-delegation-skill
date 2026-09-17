@@ -53,6 +53,14 @@ class GatewayCLITests(unittest.TestCase):
         code,text,err=self.cli('doctor','--project',str(self.project))
         self.assertEqual(code,0,err); self.assertIn('MCP handshake: search, extract, query',text)
 
+    def test_doctor_rejects_public_tool_superset(self):
+        code,_,err=self.setup_codex()
+        self.assertEqual(code,0,err)
+        with patch('io_gateway.mcp_probe',return_value=['search','extract','query','semantic_query']):
+            code,text,err=self.cli('doctor','--project',str(self.project))
+        self.assertEqual(code,2,err)
+        self.assertIn('[fail] MCP handshake: search, extract, query, semantic_query',text)
+
     def test_cursor_global_config_relies_on_workspace_cwd(self):
         code,text,err=self.cli('setup','--project',str(self.project),'--agent','cursor','--jev','off','--no-doctor')
         self.assertEqual(code,0,err)
