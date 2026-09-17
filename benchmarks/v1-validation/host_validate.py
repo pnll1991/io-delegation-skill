@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = Path(__file__).resolve().parent
@@ -30,14 +31,20 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8-sig'))
 
 
-def build_command(host, project, prompt, model=None):
+def build_command(host, project, prompt, model=None, mcp_config=None):
     project = str(Path(project).resolve())
     if host == 'claude':
         exe = shutil.which('claude') or 'claude'
+        if not mcp_config:
+            raise ValueError('Claude host validation requires an exclusive MCP config')
         command = [
             exe, '-p', prompt,
             '--output-format', 'json',
             '--max-turns', '8',
+            '--no-session-persistence',
+            '--permission-prompts', 'none',
+            '--tools', '',
+            '--strict-mcp-config', '--mcp-config', str(mcp_config),
             '--allowedTools',
             'mcp__io_context__search,mcp__io_context__extract,mcp__io_context__query',
         ]
@@ -281,6 +288,14 @@ def observed_worker(audit, before):
     }
 
 
+
+def managed_claude_mcp_config(path):
+    home=Path(os.environ.get('IO_DELEGATION_HOME',str(Path.home()/'.io-delegation'))).expanduser()
+    bootstrap=(home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
+    definition={'mcpServers':{'io_context':{'type':'stdio','command':str(Path(sys.executable).resolve()),'args':[str(bootstrap)]}}}
+    Path(path).write_text(json.dumps(definition,separators=(',',':'))+'\n',encoding='utf-8')
+    return Path(path)
+
 def preflight(host, project, io_command='io-delegation'):
     executable = 'claude' if host == 'claude' else 'agent'
     if not shutil.which(executable):
@@ -334,7 +349,12 @@ def run_suite(host, project, audit, suite, output, model=None):
     for index, case in enumerate(suite['cases'], 1):
         run_id = f'{host}-{index:02d}-{case["id"]}-r1'
         prompt = case['prompt']
-        command = build_command(host, project, prompt, model=model)
+        mcp_config=None
+        temporary=None
+        if host == 'claude':
+            temporary=tempfile.TemporaryDirectory(prefix='io-host-mcp-')
+            mcp_config=managed_claude_mcp_config(Path(temporary.name)/'mcp.json')
+        command = build_command(host, project, prompt, model=model, mcp_config=mcp_config)
         before = audit_snapshot(audit)
         started_epoch = time.time()
         started = time.monotonic()
@@ -401,6 +421,8 @@ def run_suite(host, project, audit, suite, output, model=None):
         }
         record.append(records, value)
         results.append(value)
+        if temporary is not None:
+            temporary.cleanup()
     summary = record.summarize(results)
     (output / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return summary

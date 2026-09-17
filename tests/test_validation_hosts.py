@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1] / 'benchmarks/v1-validation'
@@ -17,11 +18,18 @@ spec.loader.exec_module(mod)
 
 class HostValidationTests(unittest.TestCase):
     def test_claude_command_is_headless_without_skip_permissions(self):
-        command = mod.build_command('claude', '.', 'hello', model='sonnet')
+        command = mod.build_command('claude', '.', 'hello', model='sonnet', mcp_config='mcp.json')
         text = ' '.join(command)
         self.assertIn('-p', command)
         self.assertIn('--output-format', command)
         self.assertIn('--allowedTools', command)
+        self.assertIn('--strict-mcp-config', command)
+        self.assertIn('--mcp-config', command)
+        self.assertIn('--tools', command)
+        self.assertEqual(command[command.index('--tools')+1], '')
+        self.assertIn('--permission-prompts', command)
+        self.assertEqual(command[command.index('--permission-prompts')+1], 'none')
+        self.assertIn('--no-session-persistence', command)
         self.assertNotIn('--dangerously-skip-permissions', command)
         self.assertIn('mcp__io_context__query', text)
 
@@ -117,6 +125,22 @@ class HostValidationTests(unittest.TestCase):
         self.assertEqual(usage['output_tokens'],2)
         self.assertEqual(usage['cached_input_tokens'],4)
         self.assertEqual(usage['cache_write_input_tokens'],1)
+
+
+    def test_managed_claude_mcp_config_contains_only_io_context(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home=Path(folder)/'io-home'
+            bootstrap=home/'runtime/io-delegation/skills/io-delegation/scripts/context_bootstrap.py'
+            bootstrap.parent.mkdir(parents=True); bootstrap.write_text('pass\n',encoding='utf-8')
+            target=Path(folder)/'mcp.json'
+            with patch.dict('os.environ',{'IO_DELEGATION_HOME':str(home)},clear=False):
+                mod.managed_claude_mcp_config(target)
+            row=json.loads(target.read_text(encoding='utf-8'))
+            self.assertEqual(set(row['mcpServers']),{'io_context'})
+            server=row['mcpServers']['io_context']
+            self.assertEqual(server['type'],'stdio')
+            self.assertEqual(server['args'],[str(bootstrap.resolve())])
+            self.assertNotIn('env',server)
 
 
 if __name__ == '__main__':
