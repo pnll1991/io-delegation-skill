@@ -29,8 +29,26 @@ def git(root,*args):
     return cp.stdout
 
 
-def tracked(root):
-    return [x for x in git(root,'ls-tree','-r','--name-only','HEAD').splitlines() if x]
+def _scope_name(value):
+    text=str(value).replace('\\','/').strip('/')
+    if not text or text=='.' or '..' in Path(text).parts:
+        raise ValueError('invalid validator scope')
+    return text
+
+
+def _allowed(rel,prefixes=(),files=()):
+    rel=rel.replace('\\','/')
+    file_set={_scope_name(x) for x in files}
+    if rel in file_set: return True
+    for raw in prefixes:
+        prefix=_scope_name(raw)
+        if rel==prefix or rel.startswith(prefix+'/'): return True
+    return not prefixes and not files
+
+
+def tracked(root,prefixes=(),files=()):
+    rows=[x for x in git(root,'ls-tree','-r','--name-only','HEAD').splitlines() if x]
+    return [x for x in rows if _allowed(x,prefixes,files)]
 
 
 def read_text(root,rel):
@@ -54,23 +72,23 @@ def load_output(path):
     return value
 
 
-def extension_counts(root):
-    counts=Counter(Path(x).suffix.lower() or '<none>' for x in tracked(root))
+def extension_counts(root,prefixes=(),files=()):
+    counts=Counter(Path(x).suffix.lower() or '<none>' for x in tracked(root,prefixes,files))
     return {'extension_counts':dict(sorted(counts.items())),'tracked_files':sum(counts.values())}
 
 
-def next_routes(root):
-    files=tracked(root)
-    pages=sorted(x for x in files if x.startswith('src/app/') and x.endswith('/page.tsx'))
-    layouts=sorted(x for x in files if x.startswith('src/app/') and x.endswith('/layout.tsx'))
-    handlers=sorted(x for x in files if x.startswith('src/app/') and x.endswith('/route.ts'))
+def next_routes(root,prefixes=(),files=()):
+    rows=tracked(root,prefixes,files)
+    pages=sorted(x for x in rows if x.startswith('src/app/') and x.endswith('/page.tsx'))
+    layouts=sorted(x for x in rows if x.startswith('src/app/') and x.endswith('/layout.tsx'))
+    handlers=sorted(x for x in rows if x.startswith('src/app/') and x.endswith('/route.ts'))
     return {'pages':pages,'layouts':layouts,'route_handlers':handlers,'counts':{'pages':len(pages),'layouts':len(layouts),'route_handlers':len(handlers)}}
 
 
-def literal_files(root,literal,extensions=None):
+def literal_files(root,literal,extensions=None,prefixes=(),files=()):
     exts=set(extensions or [])
     rows=[]; occurrences=0
-    for rel in tracked(root):
+    for rel in tracked(root,prefixes,files):
         if exts and Path(rel).suffix.lower() not in exts: continue
         text=read_text(root,rel)
         if text is None: continue
@@ -90,22 +108,22 @@ def package_fields(root,fields):
     return {'fields':result}
 
 
-def env_names(root):
+def env_names(root,prefixes=(),files=()):
     patterns=[re.compile(r'process\.env\.([A-Z][A-Z0-9_]*)'),re.compile(r"process\.env\[['\"]([A-Z][A-Z0-9_]*)['\"]\]")]
-    names=set(); files={}
-    for rel in tracked(root):
+    names=set(); found_files={}
+    for rel in tracked(root,prefixes,files):
         text=read_text(root,rel)
         if text is None: continue
         found=set()
         for pattern in patterns: found.update(pattern.findall(text))
         if found:
-            names.update(found); files[rel]=sorted(found)
-    return {'env_names':sorted(names),'files':files}
+            names.update(found); found_files[rel]=sorted(found)
+    return {'env_names':sorted(names),'files':found_files}
 
 
-def security_patterns(root):
+def security_patterns(root,prefixes=(),files=()):
     result={name:[] for name in SECURITY_PATTERNS}
-    for rel in tracked(root):
+    for rel in tracked(root,prefixes,files):
         text=read_text(root,rel)
         if text is None: continue
         for name,pattern in SECURITY_PATTERNS.items():
@@ -113,8 +131,9 @@ def security_patterns(root):
     return {'patterns':{name:{'present':bool(paths),'files':sorted(paths)} for name,paths in sorted(result.items())}}
 
 
-def html_seo(root,prefix=''):
-    files=[x for x in tracked(root) if x.endswith('.html') and (not prefix or x.startswith(prefix))]
+def html_seo(root,prefix='',prefixes=(),files=()):
+    rows=tracked(root,prefixes,files)
+    html=[x for x in rows if x.endswith('.html') and (not prefix or x.startswith(prefix))]
     miss={k:[] for k in ('title','h1','canonical','description')}; hosts=Counter()
     rx={
       'title':re.compile(r'<title\b[^>]*>.*?</title>',re.I|re.S),
@@ -122,7 +141,7 @@ def html_seo(root,prefix=''):
       'canonical':re.compile(r'<link\b[^>]*rel=["\']canonical["\'][^>]*href=["\']([^"\']+)',re.I),
       'description':re.compile(r'<meta\b[^>]*name=["\']description["\'][^>]*content=["\'][^"\']*',re.I),
     }
-    for rel in files:
+    for rel in html:
         text=read_text(root,rel) or ''
         if not rx['title'].search(text): miss['title'].append(rel)
         if not rx['h1'].search(text): miss['h1'].append(rel)
@@ -132,24 +151,26 @@ def html_seo(root,prefix=''):
             host=urlparse(canon.group(1)).netloc
             if host: hosts[host]+=1
         if not rx['description'].search(text): miss['description'].append(rel)
-    return {'html_files':len(files),'missing':{k:sorted(v) for k,v in miss.items()},'canonical_hosts':dict(sorted(hosts.items()))}
+    return {'html_files':len(html),'missing':{k:sorted(v) for k,v in miss.items()},'canonical_hosts':dict(sorted(hosts.items()))}
 
 
-def top_directories(root):
-    counts=Counter((x.split('/',1)[0] if '/' in x else '<root>') for x in tracked(root))
+def top_directories(root,prefixes=(),files=()):
+    counts=Counter((x.split('/',1)[0] if '/' in x else '<root>') for x in tracked(root,prefixes,files))
     return {'top_directories':[{'name':k,'files':v} for k,v in sorted(counts.items(),key=lambda kv:(-kv[1],kv[0]))]}
 
 
 def expected(args):
     root=Path(args.root).resolve(strict=True)
-    if args.mode=='extension-counts': return extension_counts(root)
-    if args.mode=='next-routes': return next_routes(root)
-    if args.mode=='literal-files': return literal_files(root,args.literal,args.ext)
+    prefixes=getattr(args,'scope_prefix',None) or []
+    files=getattr(args,'scope_file',None) or []
+    if args.mode=='extension-counts': return extension_counts(root,prefixes,files)
+    if args.mode=='next-routes': return next_routes(root,prefixes,files)
+    if args.mode=='literal-files': return literal_files(root,args.literal,args.ext,prefixes,files)
     if args.mode=='package-fields': return package_fields(root,args.field)
-    if args.mode=='env-names': return env_names(root)
-    if args.mode=='security-patterns': return security_patterns(root)
-    if args.mode=='html-seo': return html_seo(root,args.prefix or '')
-    if args.mode=='top-directories': return top_directories(root)
+    if args.mode=='env-names': return env_names(root,prefixes,files)
+    if args.mode=='security-patterns': return security_patterns(root,prefixes,files)
+    if args.mode=='html-seo': return html_seo(root,args.prefix or '',prefixes,files)
+    if args.mode=='top-directories': return top_directories(root,prefixes,files)
     raise ValueError('unsupported mode')
 
 
@@ -158,6 +179,7 @@ def main(argv=None):
     p.add_argument('--root',required=True); p.add_argument('--output',required=True)
     p.add_argument('--mode',required=True,choices=['extension-counts','next-routes','literal-files','package-fields','env-names','security-patterns','html-seo','top-directories'])
     p.add_argument('--literal'); p.add_argument('--ext',action='append'); p.add_argument('--field',action='append',default=[]); p.add_argument('--prefix')
+    p.add_argument('--scope-prefix',action='append',default=[]); p.add_argument('--scope-file',action='append',default=[])
     a=p.parse_args(argv)
     if a.mode=='literal-files' and not a.literal: p.error('--literal required')
     if a.mode=='package-fields' and not a.field: p.error('--field required')
