@@ -1,5 +1,7 @@
 import importlib.util
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -39,9 +41,14 @@ class HostValidationTests(unittest.TestCase):
             mod.validate_suite({'version': 1, 'cases': []})
 
     def test_suite_duplicate_ids_rejected(self):
-        case = {'id': 'x', 'prompt': 'p', 'validator': [['python', '-c', 'pass']]}
+        case = {'id': 'x', 'prompt': 'p', 'validator': [['python', '-c', 'pass']], 'expected_route':'principal'}
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             mod.validate_suite({'version': 1, 'cases': [case, case, case, case]})
+
+    def test_suite_requires_expected_route(self):
+        cases=[{'id':str(i),'prompt':'p','validator':[['python','-c','pass']]} for i in range(4)]
+        with self.assertRaisesRegex(ValueError,'expected_route'):
+            mod.validate_suite({'version':1,'cases':cases})
 
     def test_usage_parser_unknown_is_none(self):
         self.assertIsNone(mod.parse_usage(b'{"result":"ok"}'))
@@ -50,6 +57,31 @@ class HostValidationTests(unittest.TestCase):
         usage = mod.parse_usage(b'{"result":{"usage":{"input_tokens":10,"output_tokens":2}}}')
         self.assertEqual(usage['input_tokens'], 10)
         self.assertEqual(usage['output_tokens'], 2)
+
+    def test_observed_context_comes_from_new_audit_rows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            audit=Path(folder); (audit/'.io-delegation').mkdir()
+            before=mod.audit_snapshot(audit)
+            rows=[
+                {'schema':'io-context/v1','operation_id':'a','event':'operation_completed','operation':'extract','status':'ok','source_bytes':50,'selected_bytes':0,'result_bytes':20,'model_calls':0},
+                {'schema':'io-context/v1','operation_id':'b','event':'operation_completed','operation':'query','status':'ok','route':'principal','source_bytes':100,'selected_bytes':30,'result_bytes':40,'model_calls':0,'router_calls':1,'router_route':'principal','router_confidence':0.9,'router_input_tokens':10,'router_output_tokens':2,'router_elapsed_ms':7},
+            ]
+            (audit/'context-events.jsonl').write_text('\n'.join(json.dumps(row) for row in rows)+'\n',encoding='utf-8')
+            observed=mod.observed_context(audit,before)
+            self.assertEqual(observed['route'],'principal')
+            self.assertTrue(observed['router_called'])
+            self.assertEqual(observed['router_usage']['input_tokens'],10)
+            self.assertEqual(observed['source_bytes'],150)
+            self.assertEqual(observed['selected_bytes'],30)
+            self.assertEqual(observed['malformed_delta'],0)
+
+    def test_no_context_operation_is_observed_principal(self):
+        with tempfile.TemporaryDirectory() as folder:
+            audit=Path(folder); (audit/'.io-delegation').mkdir()
+            before=mod.audit_snapshot(audit)
+            observed=mod.observed_context(audit,before)
+            self.assertEqual(observed['route'],'principal')
+            self.assertFalse(observed['router_called'])
 
 
 if __name__ == '__main__':
