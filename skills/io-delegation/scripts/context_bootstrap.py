@@ -71,14 +71,14 @@ def inactive_serve(inp=None, out=None):
                 version = msg.get('params', {}).get('protocolVersion')
                 result = {'protocolVersion': version if version in PROTOCOLS else PROTOCOLS[-1],
                           'capabilities': {'tools': {'listChanged': False}},
-                          'serverInfo': {'name': 'io_context', 'version': '1.0'}}
+                          'serverInfo': {'name': 'io_context', 'version': '1.1'}}
             elif initialized and method == 'tools/list':
                 result = {'tools': []}
             elif initialized and method in ('ping', 'resources/list', 'prompts/list'):
                 result = {} if method == 'ping' else {method.split('/')[0]: []}
             else:
                 out.write(encoded({'jsonrpc':'2.0','id':rid,
-                                   'error':{'code':-32601,'message':'I/O Delegation is not set up for this project'}})); out.flush(); continue
+                                   'error':{'code':-32601,'message':'I/O Delegation is inactive for this project/task'}})); out.flush(); continue
             out.write(encoded({'jsonrpc':'2.0','id':rid,'result':result})); out.flush()
         except (ValueError, TypeError, UnicodeError):
             continue
@@ -87,6 +87,10 @@ def inactive_serve(inp=None, out=None):
 def configured_serve(root, state):
     scripts = Path(__file__).resolve().parent
     sys.path.insert(0, str(scripts))
+    from context_activation import decide as activation_decide
+    activation = activation_decide(root, state)
+    if activation.get('decision') == 'bypass':
+        return inactive_serve()
     from context_mcp import ContextService, serve
     worker = state.get('worker_config')
     router = state.get('router_config')
