@@ -50,8 +50,12 @@ def pair_successes(report):
 
 def dogfood_gates(rows,left,right,small_overhead_pct,context_ratio):
     report=paired.summarize(rows,left,right)
+    pairs,_incomplete=paired.pair_rows(rows,left,right)
     left_ok,right_ok=pair_successes(report)
-    quality=right_ok>=left_ok and report['pair_count']>=20 and report['incomplete_pair_count']==0
+    regressions=[rhs['run_id'] for _key,lhs,rhs in pairs
+                 if lhs.get('success') is True and rhs.get('success') is not True]
+    quality=(right_ok>=left_ok and not regressions
+             and report['pair_count']>=20 and report['incomplete_pair_count']==0)
     small=report.get('families',{}).get('small-control',{})
     small_median=_get(small,'principal_token_delta_pct','median')
     small_gate=small.get('valid_pairs',0)>=3 and small_median is not None and small_median<=small_overhead_pct
@@ -67,7 +71,8 @@ def dogfood_gates(rows,left,right,small_overhead_pct,context_ratio):
     unsafe=[row['run_id'] for row in principal if (_get(row,'worker','calls') or 0)>0 or _get(row,'route','effective')=='bulk_read']
     principal_gate=len(principal)>=3 and not unsafe
     return report,{
-        'functional_quality':{'pass':quality,'left_successes':left_ok,'right_successes':right_ok,'pairs':report['pair_count']},
+        'functional_quality':{'pass':quality,'left_successes':left_ok,'right_successes':right_ok,
+                              'pairs':report['pair_count'],'regression_run_ids':regressions},
         'small_task_overhead':{'pass':small_gate,'median_pct':small_median,'max_allowed_pct':small_overhead_pct,'valid_pairs':small.get('valid_pairs',0)},
         'large_context_reduction':{'pass':context_gate,'median_selected_source_ratio':ratio_median,'max_ratio':context_ratio,'measured_runs':len(ratios)},
         'principal_safety':{'pass':principal_gate,'runs':len(principal),'unsafe_run_ids':unsafe},
@@ -76,7 +81,10 @@ def dogfood_gates(rows,left,right,small_overhead_pct,context_ratio):
 
 def causal_gate(rows,left,right,min_pairs,component):
     report=paired.summarize(rows,left,right)
+    pairs,_incomplete=paired.pair_rows(rows,left,right)
     left_ok,right_ok=pair_successes(report)
+    regressions=[rhs['run_id'] for _key,lhs,rhs in pairs
+                 if lhs.get('success') is True and rhs.get('success') is not True]
     warnings=list(report.get('warnings',[]))
     called=0
     for family in report.get('families',{}).values():
@@ -84,10 +92,10 @@ def causal_gate(rows,left,right,min_pairs,component):
     never_text='never called Jev' if component=='jev' else 'never called the worker'
     relevant_warning=any(never_text in warning for warning in warnings)
     passed=(report['pair_count']>=min_pairs and report['incomplete_pair_count']==0 and
-            right_ok>=left_ok and called>0 and not relevant_warning)
+            right_ok>=left_ok and not regressions and called>0 and not relevant_warning)
     return report,{'pass':passed,'pairs':report['pair_count'],'minimum_pairs':min_pairs,
                    'left_successes':left_ok,'right_successes':right_ok,'component_called_pairs':called,
-                   'warnings':warnings}
+                   'regression_run_ids':regressions,'warnings':warnings}
 
 
 def activation_gate(value):
