@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authenticated Claude Code / Cursor host validation using observed MCP audit data."""
+"""Authenticated Codex / Claude Code / Cursor host validation using observed MCP audit data."""
 from __future__ import annotations
 
 import argparse
@@ -57,7 +57,22 @@ def build_command(host, project, prompt, model=None, mcp_config=None):
         if model:
             command += ['--model', model]
         return command
-    raise ValueError('host must be claude or cursor')
+    if host == 'codex':
+        exe = shutil.which('codex') or 'codex'
+        command = [
+            exe, 'exec', '--json', '--ephemeral', '--ignore-user-config',
+            '--skip-git-repo-check', '--sandbox', 'read-only', '-C', project,
+            '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
+            '-c', 'features.shell_tool=false', '-c', 'features.multi_agent=false',
+            '-c', 'features.memories=false', '-c', 'features.unified_exec=false',
+            '-c', 'features.skill_mcp_dependency_install=false',
+            *managed_codex_mcp_args(project), '-',
+        ]
+        if model:
+            command[command.index('-c')] = '-c'
+            command[2:2] = ['-m', model]
+        return command
+    raise ValueError('host must be codex, claude or cursor')
 
 
 def mcp_check_command(host):
@@ -65,7 +80,9 @@ def mcp_check_command(host):
         return [shutil.which('claude') or 'claude', 'mcp', 'get', 'io_context']
     if host == 'cursor':
         return [shutil.which('agent') or 'agent', 'mcp', 'list-tools', 'io_context']
-    raise ValueError('host must be claude or cursor')
+    if host == 'codex':
+        return [shutil.which('codex') or 'codex', 'mcp', 'list', '--json']
+    raise ValueError('host must be codex, claude or cursor')
 
 
 def format_value(value, context):
@@ -172,7 +189,7 @@ def answer_validator(raw,expected):
     matched=any(static_validators.normalize(item)==expected for item in candidates)
     return matched,[{'ok':matched,'kind':'assistant_json','candidate_count':len(candidates)}]
 
-def project_audit_root(project):
+def project_state(project):
     project = Path(project).resolve(strict=True)
     marker = read_json(project / '.io-delegation' / 'project.json')
     project_id = marker.get('project_id') if isinstance(marker, dict) else None
@@ -182,6 +199,11 @@ def project_audit_root(project):
     state = read_json(home / 'projects' / f'{project_id}.json')
     if not isinstance(state, dict) or state.get('project_id') != project_id:
         raise ValueError('I/O Delegation project state missing or invalid')
+    return state
+
+
+def project_audit_root(project):
+    state = project_state(project)
     audit = Path(state.get('audit_root', '')).expanduser().resolve(strict=True)
     if not audit.is_dir():
         raise ValueError('I/O Delegation audit directory missing')
@@ -289,6 +311,23 @@ def observed_worker(audit, before):
 
 
 
+def managed_codex_mcp_args(project):
+    home=Path(os.environ.get('IO_DELEGATION_HOME',str(Path.home()/'.io-delegation'))).expanduser()
+    bootstrap=(home/'runtime/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
+    state=project_state(project)
+    envs=['CODEX_HOME','IO_DELEGATION_HOME']
+    for name in state.get('credential_env_names',[]):
+        if isinstance(name,str) and name and name not in envs: envs.append(name)
+    settings={
+        'command':str(Path(sys.executable).resolve()),
+        'args':[str(bootstrap),'--project',str(Path(project).resolve())],
+        'enabled':True,'required':True,'startup_timeout_sec':20,'tool_timeout_sec':185,
+        'enabled_tools':['search','extract','query'],'env_vars':envs,
+    }
+    return [item for key,value in settings.items()
+            for item in ('-c',f'mcp_servers.io_context.{key}='+json.dumps(value,ensure_ascii=True))]
+
+
 def managed_claude_mcp_config(path):
     home=Path(os.environ.get('IO_DELEGATION_HOME',str(Path.home()/'.io-delegation'))).expanduser()
     bootstrap=(home/'runtime/io-delegation/scripts/context_bootstrap.py').resolve(strict=True)
@@ -318,7 +357,7 @@ def cleanup_cursor_project_config(paths):
     except OSError: pass
 
 def preflight(host, project, io_command='io-delegation'):
-    executable = 'claude' if host == 'claude' else 'agent'
+    executable = {'claude':'claude','cursor':'agent','codex':'codex'}[host]
     if not shutil.which(executable):
         raise ValueError(f'{executable} CLI not installed')
     project = Path(project).resolve(strict=True)
@@ -379,7 +418,9 @@ def run_suite(host, project, audit, suite, output, model=None):
         before = audit_snapshot(audit)
         started_epoch = time.time()
         started = time.monotonic()
-        cp = run_process(command, cwd=project, timeout=int(case.get('timeout_seconds', 600)), max_output=8_000_000)
+        cp = run_process(command, cwd=project, timeout=int(case.get('timeout_seconds', 600)),
+                         payload=prompt.encode('utf-8') if host == 'codex' else b'',
+                         max_output=8_000_000)
         wall_ms = round((time.monotonic() - started) * 1000)
         if case.get('expected_json') is not None:
             ok, checks = answer_validator(cp.stdout, case['expected_json'])
@@ -451,7 +492,7 @@ def run_suite(host, project, audit, suite, output, model=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', choices=['claude', 'cursor'], required=True)
+    parser.add_argument('--host', choices=['codex', 'claude', 'cursor'], required=True)
     parser.add_argument('--project', required=True)
     parser.add_argument('--suite', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
