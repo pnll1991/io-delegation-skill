@@ -63,9 +63,7 @@ class ContextService:
         self.query = QueryEngine(self.scope, self.audit, config, router_config, cache=cache)
 
     def tool_names(self):
-        names = ['search', 'extract', 'query']
-        if self.engine: names.append('semantic_query')
-        return tuple(names)
+        return ('search', 'extract', 'query')
 
     def call(self, name, arguments):
         op_id, started = uuid.uuid4().hex, time.monotonic()
@@ -78,8 +76,6 @@ class ContextService:
                 raise ValueError('Tool not enabled')
             if name == 'query':
                 result, metrics = self.query.run(arguments)
-            elif name == 'semantic_query':
-                result, metrics = self.engine.run(arguments)
             else:
                 if name == 'search':
                     exact_keys(arguments, ('paths',), ('needle', 'max_matches', 'window'))
@@ -158,16 +154,6 @@ def tools(service):
                 search_results=dict(type='integer',minimum=0), known_symbols=dict(type='integer',minimum=0)),
                 required=['selections'],additionalProperties=False),
             annotations=dict(readOnlyHint=True,destructiveHint=False,idempotentHint=False,openWorldHint=True)))
-    if service.engine:
-        result.append(dict(name='semantic_query',
-            description='Optional interpretation over explicit fragments only. Prefer local extract for exact fields. One question OR up to four related questions; no whole-file fallback. Returns literal evidence and partial coverage.',
-            inputSchema=dict(type='object', properties=dict(
-                selections=dict(type='array',minItems=1,maxItems=12,items=dict(type='object',
-                    properties=dict(path=dict(type='string'),select=selector),required=['path','select'],additionalProperties=False)),
-                question=dict(type='string',minLength=1,maxLength=4000),
-                questions=dict(type='array',minItems=1,maxItems=4,items=dict(type='string',minLength=1,maxLength=800))),
-                required=['selections'],additionalProperties=False),
-            annotations=dict(readOnlyHint=True,destructiveHint=False,idempotentHint=False,openWorldHint=True)))
     return result
 
 
@@ -227,7 +213,7 @@ def codex_arguments(root, audit_root, prefixes=(), files=(), config=None, router
         raise ValueError('Explicit allowlist required')
     settings = dict(command=sys.executable, args=args, required=True, enabled=True,
                     startup_timeout_sec=20, tool_timeout_sec=185,
-                    enabled_tools=['search', 'extract', 'query']+(['semantic_query'] if config else []))
+                    enabled_tools=['search', 'extract', 'query'])
     env_vars = ['CODEX_HOME']
     if config:
         cfg = delegate.load_config(str(config))
