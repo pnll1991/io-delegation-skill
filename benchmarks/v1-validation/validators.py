@@ -10,7 +10,7 @@ import re
 import subprocess
 from urllib.parse import urlparse
 
-TEXT_EXTS={'.py','.js','.jsx','.ts','.tsx','.json','.toml','.yaml','.yml','.md','.html','.css','.scss','.go','.rs','.java','.kt','.rb','.php','.cs','.cpp','.c','.h','.hpp','.sh','.ps1','.sql','.vue','.svelte','.mjs','.cjs'}
+TEXT_EXTS={'.py','.js','.jsx','.ts','.tsx','.json','.toml','.yaml','.yml','.md','.html','.css','.scss','.go','.rs','.java','.kt','.rb','.php','.cs','.cpp','.c','.h','.hpp','.sh','.ps1','.sql','.vue','.svelte','.mjs','.cjs','.txt'}
 SECURITY_PATTERNS={
     'eval':re.compile(r'\beval\s*\('),
     'child_process':re.compile(r"(?:from\s+['\"]child_process['\"]|require\(['\"]child_process['\"]\))"),

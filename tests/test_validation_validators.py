@@ -21,6 +21,7 @@ class ValidatorTests(unittest.TestCase):
         (self.root/'other/unsafe.ts').write_text("eval('x'); ipcMain.handle('x',()=>1)\n",encoding='utf-8')
         (self.root/'index.html').write_text('<title>x</title><h1>y</h1><link rel="canonical" href="https://example.com/"><meta name="description" content="z">',encoding='utf-8')
         (self.root/'package.json').write_text(json.dumps({'scripts':{'build':'x'},'dependencies':{'next':'1'}}),encoding='utf-8')
+        (self.root/'robots.txt').write_text('User-agent: *\n',encoding='utf-8')
         subprocess.run(['git','add','.'],cwd=self.root,check=True,capture_output=True)
         subprocess.run(['git','-c','user.name=x','-c','user.email=x@y','commit','-m','x'],cwd=self.root,check=True,capture_output=True)
 
@@ -46,7 +47,8 @@ class ValidatorTests(unittest.TestCase):
     def test_literal_package_and_counts(self):
         lit=mod.literal_files(self.root,'process.env',['.tsx']); self.assertEqual(lit['occurrences'],1)
         pkg=mod.package_fields(self.root,['scripts.build']); self.assertEqual(pkg['fields']['scripts.build'],'x')
-        counts=mod.extension_counts(self.root); self.assertEqual(counts['tracked_files'],5)
+        counts=mod.extension_counts(self.root); self.assertEqual(counts['tracked_files'],6)
+        txt=mod.literal_files(self.root,'User-agent:',['.txt']); self.assertEqual(txt['occurrences'],1)
 
     def test_normalization_makes_set_like_lists_order_independent(self):
         self.assertEqual(mod.normalize({'x':['b','a']}),mod.normalize({'x':['a','b']}))
