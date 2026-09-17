@@ -220,4 +220,30 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(code,0,err); self.assertFalse((self.home/'runtime').exists())
 
 
+    def _bootstrap_tools(self):
+        messages=[{'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-06-18'}},
+                  {'jsonrpc':'2.0','method':'notifications/initialized'},
+                  {'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}}]
+        payload=''.join(json.dumps(x)+'\n' for x in messages)
+        cp=subprocess.run([gateway.sys.executable,str(gateway.runtime_bootstrap())],cwd=self.project,
+                          input=payload,capture_output=True,text=True,encoding='utf-8',timeout=10)
+        self.assertEqual(cp.returncode,0,cp.stderr)
+        replies=[json.loads(x) for x in cp.stdout.splitlines()]
+        return next(x['result']['tools'] for x in replies if x.get('id')==2)
+
+    def test_auto_activation_bypasses_small_project_but_doctor_forces_probe(self):
+        code,_,err=self.setup_codex(); self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project); self.assertEqual(state['activation_mode'],'auto')
+        self.assertEqual(self._bootstrap_tools(),[])
+        code,text,err=self.cli('doctor','--project',str(self.project))
+        self.assertEqual(code,0,err); self.assertIn('MCP handshake: search, extract, query',text)
+        code,text,err=self.cli('gate','--project',str(self.project),'--json')
+        self.assertEqual(code,0,err); self.assertEqual(json.loads(text)['decision'],'bypass')
+
+    def test_activation_always_exposes_gateway(self):
+        code,_,err=self.setup_codex('--activation','always'); self.assertEqual(code,0,err)
+        names={row['name'] for row in self._bootstrap_tools()}
+        self.assertTrue({'search','extract','query'} <= names)
+
+
 if __name__=='__main__': unittest.main()

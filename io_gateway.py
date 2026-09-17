@@ -531,6 +531,7 @@ def setup_choices(root,args,existing):
     else:
         prefixes,files=auto_scope(root)
     guard=(args.guard if args.guard is not None else existing.get('guard_mode','off') if existing else 'off')
+    activation=(args.activation if args.activation is not None else existing.get('activation_mode','auto') if existing else 'auto')
     worker=None if args.no_worker else args.worker_config or (existing.get('worker_config') if existing else None)
     if args.router_config:
         router_mode='on'; router_source=args.router_config
@@ -538,14 +539,14 @@ def setup_choices(root,args,existing):
         router_mode='on'; router_source=existing['router_config']
     else:
         router_mode=args.jev or 'auto'; router_source=None
-    return agents,prefixes,files,guard,worker,router_mode,router_source
+    return agents,prefixes,files,guard,activation,worker,router_mode,router_source
 
 
 def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
     plan={'project':str(root),'project_id':state['project_id'],'agents':state['agents'],
           'scope':{'prefixes':state['allow_prefixes'],'files':state['allow_files']},
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
-          'guard':state['guard_mode'],'actions':actions,'guard_actions':guard_rows,'writes':False}
+          'guard':state['guard_mode'],'activation':state.get('activation_mode','auto'),'actions':actions,'guard_actions':guard_rows,'writes':False}
     if json_mode:
         print(json.dumps(plan,ensure_ascii=False,indent=2)); return
     print('I/O Delegation setup preview (no files changed)')
@@ -554,6 +555,7 @@ def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
     print('Jev: '+('on' if state.get('router_config') else 'off'))
     print('Worker: '+('configured' if state.get('worker_config') else 'off'))
     print('Read guard: '+state['guard_mode'])
+    print('Activation: '+state.get('activation_mode','auto'))
     for name,value in actions.items(): print(f'- {name}: {value}')
 
 
@@ -561,7 +563,7 @@ def command_setup(args):
     root=Path(args.project).expanduser().resolve(strict=True)
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
-    agents,prefixes,files,guard,worker_value,router_mode,router_source=setup_choices(root,args,existing)
+    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source=setup_choices(root,args,existing)
 
     # Phase 1: resolve and validate the complete plan without writing anything.
     project_id,marker_action=ensure_marker(root,dry_run=True)
@@ -580,7 +582,8 @@ def command_setup(args):
            'audit_root':str(audit),'allow_prefixes':prefixes,'allow_files':files,
            'worker_config':str(worker) if worker else None,'router_config':str(router_plan) if router_plan else None,
            'router_generated':bool(router_generated),'credential_env_names':credentials,
-           'guard_mode':guard,'configured_at':existing.get('configured_at',int(time.time())) if existing else int(time.time()),
+           'guard_mode':guard,'activation_mode':activation,'activation_limits':existing.get('activation_limits',{}) if existing else {},
+           'configured_at':existing.get('configured_at',int(time.time())) if existing else int(time.time()),
            'updated_at':int(time.time()),'skill_hashes':{},'registrations':{}}
     planned_states=all_states(extra=state)
     global_actions=sync_global_mcp(planned_states,dry_run=True,replace=args.replace_existing_mcp)
@@ -785,6 +788,7 @@ def status_data(root):
             'credential_envs':{name:bool(os.environ.get(name)) for name in envs},
             'semantic_worker':bool(state.get('worker_config')),
             'guard':guard.get('mode',state.get('guard_mode','off')),
+            'activation_mode':state.get('activation_mode','auto'),
             'audit':audit_summary(state)}
 
 
@@ -803,6 +807,7 @@ def command_status(args):
     for name,present in data['credential_envs'].items(): print(f"Credential    {name}: {'available' if present else 'missing'}")
     print('Worker        '+('configured' if data['semantic_worker'] else 'off'))
     print('Read guard    '+str(data['guard']))
+    print('Activation    '+str(data['activation_mode']))
     a=data['audit']; print(f"Activity      {a['operations']} ops | {a['router_calls']} routed | {a['model_calls']} worker calls | {a['errors']} errors")
     if a['routes']: print('Routes        '+', '.join(f'{k}:{v}' for k,v in sorted(a['routes'].items())))
     return 0
@@ -815,8 +820,9 @@ def mcp_probe(root,state):
               {'jsonrpc':'2.0','method':'notifications/initialized'},
               {'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}}]
     raw=''.join(json.dumps(x,separators=(',',':'))+'\n' for x in messages).encode('utf-8')
+    env=os.environ.copy(); env['IO_DELEGATION_FORCE']='on'
     cp=subprocess.run([sys.executable,str(runtime_bootstrap())],cwd=root,input=raw,
-                      capture_output=True,timeout=20)
+                      capture_output=True,timeout=20,env=env)
     if cp.returncode: raise ValueError('Context MCP failed startup preflight')
     replies=[]
     for line in cp.stdout.splitlines():
@@ -867,6 +873,18 @@ def command_doctor(args):
     return 2 if any(x['status']=='fail' for x in checks) else 0
 
 
+
+def command_gate(args):
+    root=Path(args.project).expanduser().resolve(strict=True); state=load_state(root)
+    sys.path.insert(0,str(SKILL_SOURCE/'scripts')); from context_activation import decide
+    row=decide(root,state,args.task,args.force)
+    if args.json: print(json.dumps(row,ensure_ascii=False,indent=2))
+    else:
+        print(f"{row['decision']}  {row['reason']}")
+        print(json.dumps(row.get('signals',{}),ensure_ascii=False,sort_keys=True))
+    return 0
+
+
 def build_parser():
     p=argparse.ArgumentParser(prog='io-delegation',description='Context gateway for coding agents')
     sub=p.add_subparsers(dest='command',required=True)
@@ -878,6 +896,7 @@ def build_parser():
     setup.add_argument('--router-config'); setup.add_argument('--jev',choices=['auto','on','off'],default=None)
     setup.add_argument('--typesafe-env',default='TYPESAFE_API_KEY')
     setup.add_argument('--guard',choices=['off','observe','enforce'],default=None)
+    setup.add_argument('--activation',choices=['auto','always','off'],default=None)
     setup.add_argument('--update',action='store_true'); setup.add_argument('--no-doctor',action='store_true')
     setup.add_argument('--dry-run',action='store_true'); setup.add_argument('--json',action='store_true')
     setup.add_argument('--replace-existing-mcp',action='store_true')
@@ -889,6 +908,10 @@ def build_parser():
     remove.add_argument('--json',action='store_true'); remove.add_argument('--force',action='store_true')
     remove.add_argument('--purge-data',action='store_true'); remove.add_argument('--purge-runtime',action='store_true')
     remove.add_argument('--allow-tracked-config',action='store_true'); remove.set_defaults(func=command_remove)
+
+    gate=sub.add_parser('gate',help='Preview the deterministic activation decision')
+    gate.add_argument('--project',default='.'); gate.add_argument('--task'); gate.add_argument('--force',choices=['on','off'])
+    gate.add_argument('--json',action='store_true'); gate.set_defaults(func=command_gate)
 
     for name,func in [('status',command_status),('doctor',command_doctor)]:
         cmd=sub.add_parser(name); cmd.add_argument('--project',default='.')
