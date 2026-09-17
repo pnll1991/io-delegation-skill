@@ -18,7 +18,7 @@ import host_fixture
 import host_validate
 import security_audit
 
-HOST_AGENT={'claude':'claude-code','cursor':'cursor'}
+HOST_AGENT={'codex':'codex','claude':'claude-code','cursor':'cursor'}
 FILES=tuple(sorted(host_fixture.FILES))
 
 def gateway_command(*args):
@@ -45,6 +45,7 @@ def run_checked(command,*,cwd=None,timeout=120):
     return cp
 
 def host_executable(host):
+    if host=='codex': return shutil.which('codex') or shutil.which('codex.exe')
     if host=='claude': return shutil.which('claude') or shutil.which('claude.cmd')
     found=shutil.which('agent') or shutil.which('agent.cmd')
     if found: return found
