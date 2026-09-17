@@ -23,7 +23,10 @@ FORBIDDEN_KEYS = {
     'source', 'source_text', 'raw_source', 'file_contents', 'contents',
     'credential', 'credentials', 'api_key', 'password', 'secret',
 }
-TOKEN_KEYS = ('input_tokens', 'output_tokens', 'cached_input_tokens', 'reasoning_output_tokens')
+TOKEN_KEYS = (
+    'input_tokens', 'output_tokens', 'cached_input_tokens',
+    'cache_write_input_tokens', 'reasoning_output_tokens',
+)
 
 
 def _int_or_none(value):
@@ -206,6 +209,7 @@ def _quartiles(values):
     vals = sorted(
         value for value in values
         if isinstance(value, (int, float)) and not isinstance(value, bool)
+        and math.isfinite(value)
     )
     if not vals:
         return {'p25': None, 'median': None, 'p75': None}
@@ -224,6 +228,38 @@ def _get(row, *path):
     return current
 
 
+def _selection_ratio(row):
+    source = _get(row, 'context', 'source_bytes')
+    selected = _get(row, 'context', 'selected_bytes')
+    if type(source) is int and source > 0 and type(selected) is int:
+        return selected / source
+    return None
+
+
+def _arm_summary(items):
+    return {
+        'runs': len(items),
+        'success_rate': sum(item.get('success') is True for item in items) / len(items),
+        'principal_tokens': _quartiles([_get(item, 'principal', 'raw_tokens') for item in items]),
+        'wall_ms': _quartiles([_get(item, 'timing', 'wall_ms') for item in items]),
+        'selected_bytes': _quartiles([_get(item, 'context', 'selected_bytes') for item in items]),
+        'source_bytes': _quartiles([_get(item, 'context', 'source_bytes') for item in items]),
+        'selected_source_ratio': _quartiles([_selection_ratio(item) for item in items]),
+        'router_calls': sum(_get(item, 'router', 'called') is True for item in items),
+        'worker_calls': sum((_get(item, 'worker', 'calls') or 0) for item in items),
+        'fallbacks': sum(bool(_get(item, 'route', 'fallback')) for item in items),
+        'unknown_principal_usage': sum(_get(item, 'principal', 'raw_tokens') is None for item in items),
+        'unknown_router_usage': sum(
+            _get(item, 'router', 'called') is True and _get(item, 'router', 'usage') is None
+            for item in items
+        ),
+        'unknown_worker_usage': sum(
+            (_get(item, 'worker', 'calls') or 0) > 0 and _get(item, 'worker', 'usage') is None
+            for item in items
+        ),
+    }
+
+
 def summarize(rows):
     groups = {}
     for row in rows:
@@ -235,28 +271,9 @@ def summarize(rows):
         'overall': {},
     }
     for (family, arm), items in sorted(groups.items()):
-        family_row = result['families'].setdefault(family, {})
-        family_row[arm] = {
-            'runs': len(items),
-            'success_rate': sum(item.get('success') is True for item in items) / len(items),
-            'principal_tokens': _quartiles([_get(item, 'principal', 'raw_tokens') for item in items]),
-            'wall_ms': _quartiles([_get(item, 'timing', 'wall_ms') for item in items]),
-            'selected_bytes': _quartiles([_get(item, 'context', 'selected_bytes') for item in items]),
-            'source_bytes': _quartiles([_get(item, 'context', 'source_bytes') for item in items]),
-            'router_calls': sum(_get(item, 'router', 'called') is True for item in items),
-            'worker_calls': sum((_get(item, 'worker', 'calls') or 0) for item in items),
-            'fallbacks': sum(bool(_get(item, 'route', 'fallback')) for item in items),
-        }
+        result['families'].setdefault(family, {})[arm] = _arm_summary(items)
     for arm in sorted(set(row['arm'] for row in rows)):
-        items = [row for row in rows if row['arm'] == arm]
-        result['overall'][arm] = {
-            'runs': len(items),
-            'success_rate': sum(item.get('success') is True for item in items) / len(items),
-            'principal_tokens': _quartiles([_get(item, 'principal', 'raw_tokens') for item in items]),
-            'wall_ms': _quartiles([_get(item, 'timing', 'wall_ms') for item in items]),
-            'router_calls': sum(_get(item, 'router', 'called') is True for item in items),
-            'worker_calls': sum((_get(item, 'worker', 'calls') or 0) for item in items),
-        }
+        result['overall'][arm] = _arm_summary([row for row in rows if row['arm'] == arm])
     return result
 
 
