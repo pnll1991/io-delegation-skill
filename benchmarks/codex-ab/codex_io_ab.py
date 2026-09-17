@@ -382,16 +382,21 @@ def main(argv=None):
                 setup_sha=git(wt,'rev-parse','HEAD').strip()
                 prompt='\n\n'.join(x for x in (strategy.get('prompt_prefix',''),task['user_prompt']) if x)
                 if transport=='mcp':
-                    prompt += ('\nThe approved worker is an MCP tool: server io_delegation, tool bulk_read. '
-                               'Call that tool directly with paths and question. Do NOT run Python or io_delegate.py '
-                               'in the shell. Prefer 1-4 files per call, maximum 12 files and 12 findings. '
-                               'Do not read unrelated directories, global skills, or credentials. '
-                               'Verify evidence and preserve existing files. No recursive delegation.')
                     if mode=='required':
-                        prompt += ('\nFirst call bulk_read on ONE relevant source file with a narrow factual question. '
+                        prompt += ('\nThe approved worker is an MCP tool: server io_delegation, tool bulk_read. '
+                                   'Call that tool directly with paths and question. Do NOT run Python or io_delegate.py '
+                                   'in the shell. Prefer 1-4 files per call, maximum 12 files and 12 findings. '
+                                   'Do not read unrelated directories, global skills, or credentials. '
+                                   'Verify evidence and preserve existing files. No recursive delegation.'
+                                   '\nFirst call bulk_read on ONE relevant source file with a narrow factual question. '
                                    'A successful call is mandatory. If unavailable or a runtime/permission error occurs, '
                                    'STOP immediately and report it. Do not debug launchers, change permissions, '
                                    'or complete the whole task without the required worker.')
+                    else:
+                        prompt += ('\nAn approved optional worker is available as MCP server io_delegation, tool bulk_read. '
+                                   'Use it only when delegated factual multi-file extraction is actually beneficial; '
+                                   'do not call it merely because it exists. Do NOT run Python or io_delegate.py as a worker fallback. '
+                                   'If used, prefer 1-4 files per call, verify evidence, and do not recursively delegate.')
                 elif mode!='disabled':
                     prompt += ('\nUse .agents/skills/io-delegation/scripts/io_delegate.py with '
                                '--config .io-delegation/worker.local.json. Python: '+sys.executable+'.')
