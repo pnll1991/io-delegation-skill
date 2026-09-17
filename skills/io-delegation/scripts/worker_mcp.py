@@ -35,14 +35,28 @@ def relative_name(name):
 
 
 def reject_links(path, root):
-    for component in (path, *path.parents):
-        if component == root:
-            break
-        # Windows junctions are reparse points, even on Python 3.11.
-        stat = component.lstat()
-        if component.is_symlink() or getattr(stat, 'st_file_attributes', 0) & 0x400:
+    raw_root = Path(root).absolute()
+    raw_path = Path(path).absolute()
+    canonical_root = raw_root.resolve(strict=True)
+    canonical_path = raw_path.resolve(strict=True)
+    try:
+        canonical_path.relative_to(canonical_root)
+    except ValueError:
+        raise ValueError('Path resolves outside approved root') from None
+    # Prefer the lexical path when root/path share the same spelling so an
+    # in-scope symlink cannot be hidden by resolve(). OS aliases above the
+    # approved root (macOS /var, Windows 8.3 names) fall back to canonical form.
+    try:
+        relative = raw_path.relative_to(raw_root)
+        current = raw_root
+    except ValueError:
+        relative = canonical_path.relative_to(canonical_root)
+        current = canonical_root
+    for part in relative.parts:
+        current = current / part
+        info = current.lstat()
+        if current.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
             raise ValueError('Symlinks and reparse points are not accepted')
-    path.resolve(strict=True).relative_to(root)
 
 
 class WorkerService:

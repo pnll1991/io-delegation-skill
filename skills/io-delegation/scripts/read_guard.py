@@ -54,6 +54,8 @@ def measure(path: str, root: Path, cwd: Path, budget: dict,
     """Count only locally; no file content leaves this function. Stop at budget+1."""
     if not isinstance(path, str) or not path or "\x00" in path:
         raise ValueError("Missing file path")
+    root = Path(root).resolve()
+    cwd = Path(cwd).resolve()
     p = Path(path).expanduser()
     p = (cwd / p if not p.is_absolute() else p).resolve()
     try:
@@ -218,6 +220,7 @@ def shell_request(command: str, root: Path, cwd: Path, budget: dict) -> dict:
 def evaluate(payload: dict, root: Path, policy: dict) -> dict:
     if not isinstance(payload, dict) or not isinstance(payload.get("tool_name"), str):
         raise ValueError("Expected a pre-tool event")
+    root = Path(root).resolve()
     tool = payload["tool_name"]
     data = payload.get("tool_input", {})
     if not isinstance(data, dict):

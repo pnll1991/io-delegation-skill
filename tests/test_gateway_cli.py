@@ -126,11 +126,13 @@ class GatewayCLITests(unittest.TestCase):
         fake_a=str(self.base/'python-a.exe'); fake_b=str(self.base/'python-b.exe')
         with patch.object(gateway.sys,'executable',fake_a):
             code,_,err=self.setup_codex(); self.assertEqual(code,0,err)
-        self.assertIn(fake_a.replace('\\','\\\\'),(self.host/'.codex/config.toml').read_text())
+        expected_a=str(Path(fake_a).resolve()).replace('\\','\\\\')
+        self.assertIn(expected_a,(self.host/'.codex/config.toml').read_text())
         with patch.object(gateway.sys,'executable',fake_b):
             code,_,err=self.setup_codex('--update'); self.assertEqual(code,0,err)
         text=(self.host/'.codex/config.toml').read_text()
-        self.assertIn(fake_b.replace('\\','\\\\'),text); self.assertNotIn(fake_a.replace('\\','\\\\'),text)
+        expected_b=str(Path(fake_b).resolve()).replace('\\','\\\\')
+        self.assertIn(expected_b,text); self.assertNotIn(expected_a,text)
 
     def test_tracked_hook_config_requires_explicit_override(self):
         if not shutil.which('git'): self.skipTest('git unavailable')

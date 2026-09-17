@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Scoped context preparation over MCP STDIO. Local tools need no model or login."""
 from __future__ import annotations
 import argparse
@@ -25,14 +25,14 @@ MAX_RESULT_BYTES = 24_000
 
 
 def private_external(path, root):
-    path = Path(path).absolute()
-    if not path.is_dir():
+    raw = Path(path).absolute()
+    if not raw.is_dir():
         raise ValueError('Audit directory must exist')
-    for component in (path, *path.parents):
-        info = component.lstat()
-        if component.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
-            raise ValueError('Private directory cannot contain symlinks or reparse points')
-    path = path.resolve(strict=True)
+    info = raw.lstat()
+    if raw.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
+        raise ValueError('Audit directory itself cannot be a symlink or reparse point')
+    path = raw.resolve(strict=True)
+    root = Path(root).resolve(strict=True)
     if path == root or root in path.parents:
         raise ValueError('Audit directory must be outside the project')
     return path

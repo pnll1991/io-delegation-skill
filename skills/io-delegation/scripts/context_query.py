@@ -22,11 +22,11 @@ ROUTER_OPERATIONS = {
 
 def _external_config(path, root):
     path = Path(path).absolute()
-    for component in (path, *path.parents):
-        info = component.lstat()
-        if component.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
-            raise ValueError('Router configuration cannot contain symlinks or reparse points')
+    info = path.lstat()
+    if path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
+        raise ValueError('Router configuration itself cannot be a symlink or reparse point')
     resolved = path.resolve(strict=True)
+    root = Path(root).resolve(strict=True)
     if resolved == root or root in resolved.parents:
         raise ValueError('Router configuration must be outside project')
     return resolved
