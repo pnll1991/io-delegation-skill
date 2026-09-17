@@ -114,6 +114,27 @@ class QueryTests(unittest.TestCase):
         finally:
             server.shutdown();server.server_close();thread.join()
 
+    def test_bulk_route_can_select_more_than_principal_output_budget(self):
+        for name, prefix in [('a.py','AAA'),('b.py','BBB'),('c.py','CCC')]:
+            (self.root/name).write_text(prefix + ('x' * 4497) + '\n')
+        worker=self.base/'worker-large.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=[sys.executable,'-c','pass'],timeout_seconds=5)))
+        service=self.service(worker);service.query.router.run=lambda *a,**k:routed('bulk_read',.96)
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        def reply(job,cfg,root,record):
+            data=json.loads(job['messages'][1]['content']);record('worker_dispatched',adapter='test',model='fixture')
+            usage=dict(input_tokens=40,output_tokens=8,cached_input_tokens=0,cache_write_input_tokens=0,reasoning_output_tokens=0)
+            record('worker_response',usage=usage,usage_complete=True)
+            findings=[dict(path=f['path'],symbol='X',evidence=f['content'][:12],fact='Observed') for f in data['files']]
+            return json.dumps(dict(status='ok',findings=findings,unknowns=[],read_paths=[f['path'] for f in data['files']])),dict(usage=usage)
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(result['route'],'bulk_read')
+        events=[json.loads(x) for x in (self.audit/'context-events.jsonl').read_text().splitlines()]
+        completed=[x for x in events if x.get('event')=='operation_completed'][-1]
+        self.assertGreater(completed['selected_bytes'],12_000)
+
     def test_router_error_falls_back_to_local_security_rule(self):
         service=self.service()
         def fail(*a,**k): raise RouterError('offline')

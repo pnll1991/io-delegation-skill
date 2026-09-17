@@ -1,4 +1,4 @@
-﻿"""Smart context routing for the public `query` MCP tool.
+"""Smart context routing for the public `query` MCP tool.
 
 The router sees task text plus aggregate metadata, never source contents or names.
 Selected source fragments stay local unless an approved semantic worker is used.
@@ -11,7 +11,7 @@ import time
 
 import decision_router as jev
 from context_selection import MAX_SELECTED_BYTES, grouped_question, select
-from context_sources import exact_keys
+from context_sources import exact_keys, source_table
 from context_engine import SemanticEngine
 
 ROUTER_OPERATIONS = {
@@ -61,7 +61,7 @@ def _question(arguments):
     return arguments['question'] if 'question' in arguments else grouped_question(arguments['questions'])
 
 
-def _prepare(scope, arguments, max_bytes):
+def _prepare(scope, arguments):
     exact_keys(arguments, ('selections',),
                ('question', 'questions', 'operation', 'search_results', 'known_symbols'))
     question = _question(arguments)
@@ -75,17 +75,17 @@ def _prepare(scope, arguments, max_bytes):
     for item in selections:
         exact_keys(item, ('path', 'select'))
         names.append(item['path'])
-    sources = scope.load(sorted(set(names)))
-    bundle = select(sources, selections, max_bytes=max_bytes)
-    return sources, bundle, question, operation
+    paths = sorted(set(names))
+    sources = scope.load(paths)
+    return sources, selections, paths, question, operation
 
 
-def _heuristic(operation, paths, bundle, worker_available):
+def _heuristic(operation, paths, source_bytes, worker_available):
     if operation in {'debugging', 'architecture', 'security', 'editing'}:
         return 'principal'
     if operation == 'generation':
         return 'principal'
-    if len(paths) >= 3 and worker_available and bundle['selected_bytes'] >= 2048:
+    if len(paths) >= 3 and worker_available and source_bytes >= 2048:
         return 'bulk_read'
     return 'targeted_read'
 
@@ -120,12 +120,12 @@ class QueryEngine:
 
     def run(self, arguments):
         worker_limit = self.semantic.limits['max_selected_bytes'] if self.semantic else MAX_SELECTED_BYTES
-        max_bytes = min(12_000, worker_limit)
-        sources, bundle, question, operation = _prepare(self.scope, arguments, max_bytes)
-        paths = sorted({item['path'] for item in arguments['selections']})
+        direct_limit = min(12_000, worker_limit)
+        sources, selections, paths, question, operation = _prepare(self.scope, arguments)
+        source_bytes = sum(item['bytes'] for item in sources)
         metrics = {
-            'route': 'query', 'source_bytes': bundle['source_bytes'],
-            'selected_bytes': bundle['selected_bytes'], 'model_calls': 0,
+            'route': 'query', 'source_bytes': source_bytes,
+            'selected_bytes': 0, 'model_calls': 0,
             'router_calls': 0, 'router_route': None, 'router_confidence': None,
             'router_input_tokens': None, 'router_output_tokens': None,
             'router_elapsed_ms': None, 'cache': 'disabled'
@@ -149,35 +149,39 @@ class QueryEngine:
                 metrics['router_route'] = 'error'
 
         if route in (None, 'current_rules'):
-            route = _heuristic(operation, paths, bundle, self.semantic is not None)
+            route = _heuristic(operation, paths, source_bytes, self.semantic is not None)
         metrics['route'] = route
 
         if route == 'bulk_read' and self.semantic:
-            semantic_args = {'selections': arguments['selections']}
+            semantic_args = {'selections': selections}
             if 'question' in arguments:
                 semantic_args['question'] = arguments['question']
             else:
                 semantic_args['questions'] = arguments['questions']
             result, semantic_metrics = self.semantic.run(semantic_args)
             metrics.update({k: v for k, v in semantic_metrics.items()
-                            if k not in {'route', 'source_bytes', 'selected_bytes'}})
+                            if k not in {'route', 'source_bytes'}})
             metrics['model_calls'] = semantic_metrics.get('model_calls', 0)
             result['route'] = 'bulk_read'
             result['recommended_route'] = 'bulk_read'
-        elif route == 'bulk_read':
-            result = _evidence(bundle, 'targeted_read', recommended='bulk_read',
-                               reason='semantic_worker_unavailable')
-            metrics['route'] = 'targeted_read'
         elif route == 'deterministic':
             result = {
                 'status': 'ok', 'route': 'deterministic',
                 'recommended_route': 'deterministic',
                 'action': 'Use a deterministic tool; no semantic worker was called.',
-                'sources': bundle['sources'], 'coverage': bundle['coverage'],
-                'selected_bytes': bundle['selected_bytes'], 'model_calls': 0,
+                'sources': source_table(sources),
+                'coverage': {'scope': 'route-only'},
+                'selected_bytes': 0, 'model_calls': 0,
             }
         else:
-            result = _evidence(bundle, route)
+            bundle = select(sources, selections, max_bytes=direct_limit)
+            metrics['selected_bytes'] = bundle['selected_bytes']
+            if route == 'bulk_read':
+                result = _evidence(bundle, 'targeted_read', recommended='bulk_read',
+                                   reason='semantic_worker_unavailable')
+                metrics['route'] = 'targeted_read'
+            else:
+                result = _evidence(bundle, route)
         self.scope.unchanged(sources)
 
         if router_result:
