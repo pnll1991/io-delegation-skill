@@ -115,7 +115,9 @@ def evaluate(args):
     jev_report,jev_g=causal_gate(jev,args.jev_left,args.jev_right,args.min_jev_pairs,'jev')
     worker_report,worker_g=causal_gate(worker,args.worker_left,args.worker_right,args.min_worker_pairs,'worker')
     activation_g=activation_gate(activation)
-    parity_g={'pass':parity.get('critical_deviations')==0,'critical_deviations':parity.get('critical_deviations')}
+    parity_g={'pass':parity.get('critical_deviations')==0 and parity.get('lifecycle_complete') is True,
+              'critical_deviations':parity.get('critical_deviations'),
+              'lifecycle_complete':parity.get('lifecycle_complete')}
     security_g={'pass':security.get('clean') is True,'secret_hits':len(security.get('secret_hits',[])),
                 'forbidden_event_fields':len(security.get('forbidden_event_fields',[])),
                 'malformed_jsonl':len(security.get('malformed_jsonl',[]))}
