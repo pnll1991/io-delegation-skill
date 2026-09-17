@@ -12,6 +12,7 @@ sys.path.insert(0,str(HERE))
 import record
 
 DEFAULT_HOSTS=('codex','claude','cursor')
+LIFECYCLE_PHASES=('setup','validation','move_refresh','doctor_after_move','security','remove')
 
 
 def parse_source(value):
@@ -47,7 +48,37 @@ def load_sources(sources):
     return result
 
 
-def summarize(by_host,required_hosts=DEFAULT_HOSTS):
+def load_lifecycles(sources):
+    result={}
+    for host,path in sources:
+        if host in result: raise ValueError('duplicate lifecycle source: '+host)
+        value=json.loads(Path(path).read_text(encoding='utf-8-sig'))
+        if not isinstance(value,dict) or value.get('host')!=host:
+            raise ValueError('lifecycle host mismatch: '+host)
+        result[host]=value
+    return result
+
+
+def lifecycle_status(lifecycles,required_hosts):
+    rows={}; deviations=[]
+    for host in required_hosts:
+        value=(lifecycles or {}).get(host)
+        if value is None:
+            rows[host]=None
+            deviations.append({'task_id':'__lifecycle__','kind':'missing_lifecycle','hosts':[host]})
+            continue
+        phases=value.get('lifecycle') if isinstance(value,dict) else None
+        failed=[phase for phase in LIFECYCLE_PHASES
+                if not isinstance(phases,dict) or phases.get(phase)!='pass']
+        ok=not failed and value.get('error') is None
+        rows[host]={'pass':ok,'failed_phases':failed,'error':value.get('error')}
+        if not ok:
+            deviations.append({'task_id':'__lifecycle__','kind':'lifecycle_failure',
+                               'hosts':[host],'failed_phases':failed})
+    return rows,deviations
+
+
+def summarize(by_host,required_hosts=DEFAULT_HOSTS,lifecycles=None):
     tasks=sorted({row['task_id'] for rows in by_host.values() for row in rows})
     matrix=[]; deviations=[]
     for task_id in tasks:
@@ -83,13 +114,20 @@ def summarize(by_host,required_hosts=DEFAULT_HOSTS):
             if failed: task_deviations.append({'kind':'host_failure','hosts':failed})
         matrix.append({'task_id':task_id,'hosts':entries,'deviations':task_deviations})
         deviations.extend({'task_id':task_id,**item} for item in task_deviations)
+    lifecycle,lifecycle_deviations=lifecycle_status(lifecycles,required_hosts)
+    deviations.extend(lifecycle_deviations)
+    critical_kinds=('missing_host','host_failure','validator_mismatch','route_mismatch',
+                    'missing_lifecycle','lifecycle_failure')
     return {
         'schema':'io-context-host-parity/v1',
         'required_hosts':list(required_hosts),
         'tasks':len(tasks),
         'matrix':matrix,
+        'lifecycle':lifecycle,
+        'lifecycle_complete':all(value is not None and value.get('pass') is True
+                                 for value in lifecycle.values()),
         'deviations':deviations,
-        'critical_deviations':sum(item['kind'] in ('missing_host','host_failure','validator_mismatch','route_mismatch') for item in deviations),
+        'critical_deviations':sum(item['kind'] in critical_kinds for item in deviations),
     }
 
 
@@ -106,6 +144,9 @@ def markdown(result):
             else: cells.append(f"{'pass' if value['success'] else 'fail'} / {value['route'] or 'unknown'} / worker={value['worker_calls']}")
         dev=', '.join(item['kind'] for item in row['deviations']) or 'none'
         lines.append('| '+row['task_id']+' | '+' | '.join(cells)+' | '+dev+' |')
+    lines+=['','Lifecycle: '+('complete' if result.get('lifecycle_complete') else 'incomplete')]
+    for host,value in result.get('lifecycle',{}).items():
+        lines.append(f"- {host}: "+('pass' if value and value.get('pass') else 'fail/missing'))
     lines+=['',f"Critical deviations: {result['critical_deviations']}"]
     return '\n'.join(lines)+'\n'
 
@@ -113,19 +154,22 @@ def markdown(result):
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--records',action='append',required=True,help='HOST=PATH')
+    p.add_argument('--lifecycle',action='append',required=True,help='HOST=PATH')
     p.add_argument('--host',action='append',dest='hosts')
     p.add_argument('--output-json',type=Path)
     p.add_argument('--output-md',type=Path)
     a=p.parse_args(argv)
     sources=[parse_source(value) for value in a.records]
-    result=summarize(load_sources(sources),tuple(a.hosts or DEFAULT_HOSTS))
+    lifecycle_sources=[parse_source(value) for value in a.lifecycle]
+    result=summarize(load_sources(sources),tuple(a.hosts or DEFAULT_HOSTS),
+                     load_lifecycles(lifecycle_sources))
     text=json.dumps(result,ensure_ascii=False,indent=2)+'\n'
     if a.output_json:
         a.output_json.parent.mkdir(parents=True,exist_ok=True); a.output_json.write_text(text,encoding='utf-8')
     else: print(text,end='')
     if a.output_md:
         a.output_md.parent.mkdir(parents=True,exist_ok=True); a.output_md.write_text(markdown(result),encoding='utf-8')
-    return 0 if result['critical_deviations']==0 else 3
+    return 0 if result['critical_deviations']==0 and result['lifecycle_complete'] else 3
 
 if __name__=='__main__':
     try: raise SystemExit(main())
