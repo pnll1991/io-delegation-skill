@@ -44,6 +44,10 @@ def row(run_id='r1', arm='gateway'):
         'context': {'source_bytes': 100, 'selected_bytes': 20, 'result_bytes': 20},
         'timing': {'wall_ms': 1000},
         'validator': {'status': 'pass', 'exit_code': 0},
+        'conditions': {
+            'principal_process': 'cold', 'context_cache': 'cold',
+            'provider_cache': 'reported', 'worktree': 'fresh',
+        },
         'rework': 0,
         'errors': [],
         'notes': '',
@@ -63,6 +67,8 @@ class RecordTests(unittest.TestCase):
             self.assertEqual(summary['runs'], 2)
             self.assertEqual(summary['overall']['gateway']['principal_tokens']['median'], 12)
             self.assertAlmostEqual(summary['overall']['gateway']['selected_source_ratio']['median'], .2)
+            self.assertEqual(summary['overall']['gateway']['conditions']['principal_process']['cold'],1)
+            self.assertEqual(summary['overall']['gateway']['conditions']['worktree']['fresh'],1)
 
     def test_unknown_tokens_remain_null(self):
         value = row()
@@ -108,6 +114,21 @@ class RecordTests(unittest.TestCase):
         value = row()
         value['principal']['usage']['cache_write_input_tokens'] = 3
         mod.validate(value)
+
+    def test_conditions_are_bounded_enums(self):
+        value=row(); mod.validate(value)
+        value['conditions']['context_cache']='sometimes'
+        with self.assertRaisesRegex(ValueError,'conditions.context_cache'):
+            mod.validate(value)
+        value=row(); value['conditions']['mystery']='x'
+        with self.assertRaisesRegex(ValueError,'unknown condition'):
+            mod.validate(value)
+
+    def test_missing_conditions_summarize_as_unknown(self):
+        value=row(); value.pop('conditions')
+        summary=mod.summarize([value])['overall']['gateway']['conditions']
+        self.assertEqual(summary['principal_process']['unknown'],1)
+        self.assertEqual(summary['context_cache']['unknown'],1)
 
     def test_selected_source_math_fixture(self):
         value = row()
