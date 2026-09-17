@@ -1,5 +1,7 @@
 # Instalación y convivencia
 
+> **V1 recomendada:** para la instalación como Context Gateway (skill + MCP + routing + doctor), usar [INSTALLATION_V1.md](INSTALLATION_V1.md). Este documento conserva el flujo manual y detalles de convivencia.
+
 ## Carpeta autocontenida
 
 El artefacto instalable es `skills/io-delegation/`. Contiene su propia licencia, recursos y script. No depende de rutas fuera de esa carpeta. `install.py` copia ese directorio; no modifica `AGENTS.md`, `CLAUDE.md`, reglas, ajustes, modelos ni permisos.

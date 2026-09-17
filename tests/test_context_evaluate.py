@@ -47,7 +47,7 @@ class EvaluationTests(unittest.TestCase):
     def test_real_local_boundary_default_no_models(self):
         result=verify_context.verify(self.base/'boundary')
         self.assertTrue(result['ok']);self.assertEqual(result['model_calls'],0)
-        self.assertFalse(result['live_boundary_verified']);self.assertEqual(result['tools'],['search','extract'])
+        self.assertFalse(result['live_boundary_verified']);self.assertEqual(result['tools'],['search','extract','query'])
 
     def test_adoption_gate_does_not_hide_failed_cost_or_unbalanced_tasks(self):
         rows=[dict(task='x',arm=a,task_success=True,system_accounting_complete=True,system_raw_tokens=t,worker_calls=0,cache_hits=0,seconds=1) for a,t in [('baseline',100),('deterministic',70)]]

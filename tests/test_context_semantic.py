@@ -1,4 +1,4 @@
-import json
+﻿import json
 from pathlib import Path
 import sys
 import tempfile
@@ -36,7 +36,7 @@ class SemanticTests(unittest.TestCase):
         return json.loads(self.service.call('semantic_query',self.args)['content'][0]['text'])
 
     def test_semantic_advertised_only_approved(self):
-        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract','semantic_query'])
+        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract','query','semantic_query'])
         self.config.write_text('{"approved":false}')
         with self.assertRaises(DelegateError):ContextService(self.root,self.audit,files=['a.txt'],config=self.config)
 

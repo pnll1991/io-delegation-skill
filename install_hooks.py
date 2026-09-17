@@ -94,6 +94,7 @@ def main(argv=None):
     parser.add_argument("--project", required=True)
     parser.add_argument("--python", default="python", help="Executable name available to the host")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--mode", choices=["observe", "enforce"], help="Read guard policy mode; existing policy is preserved when omitted")
     parser.add_argument("--remove", action="store_true", help="Remove only the exact installed hook entry")
     args = parser.parse_args(argv)
     try:
@@ -126,6 +127,8 @@ def main(argv=None):
         if not args.remove and target.exists() and target.read_bytes() != code:
             raise ValueError("Existing runtime differs; back it up and review before replacing")
         changed = updated != current
+        policy = dict(POLICY)
+        if args.mode: policy["mode"] = args.mode
         backup = None
         if not args.dry_run:
             if not args.remove:
@@ -135,8 +138,14 @@ def main(argv=None):
                     atomic_write(runtime / ".gitignore", b"# Machine-local runtime, installation records and private backups.\n*\n")
                 if not target.exists():
                     atomic_write(target, code)
-                if not (runtime / "policy.json").exists():
-                    atomic_write(runtime / "policy.json", json_bytes(POLICY))
+                policy_path = runtime / "policy.json"
+                if not policy_path.exists():
+                    atomic_write(policy_path, json_bytes(policy))
+                elif args.mode:
+                    existing_policy = json.loads(policy_path.read_text(encoding="utf-8-sig"))
+                    if existing_policy.get("mode") != args.mode:
+                        existing_policy["mode"] = args.mode
+                        atomic_write(policy_path, json_bytes(existing_policy))
                 # Validate the interpreter, copied runtime and policy BEFORE changing host config.
                 check = subprocess.run([args.python, str(target), "--root", str(root), "--policy",
                                         str(runtime / "policy.json")], input=json.dumps({"tool_name": "Grep", "tool_input": {}}),
@@ -159,7 +168,8 @@ def main(argv=None):
                 record.unlink()
         print(json.dumps({"status": "dry_run" if args.dry_run else "removed" if args.remove else "installed",
                           "changed": changed, "config": str(config_path), "entry": entry,
-                          "backup": str(backup) if backup else None, "host_verified": False}, ensure_ascii=True))
+                          "backup": str(backup) if backup else None, "host_verified": False,
+                          "policy_mode": policy["mode"] if not args.remove else None}, ensure_ascii=True))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=True), file=sys.stderr)

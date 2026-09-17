@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Scoped context preparation over MCP STDIO. Local tools need no model or login."""
 from __future__ import annotations
 import argparse
@@ -12,6 +12,8 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import context_ops as ops
 from context_engine import SemanticEngine
+from context_query import QueryEngine
+import decision_router as jev_router
 from context_cache import ResultCache
 from context_sources import SourceScope, encoded, exact_keys
 from worker_mcp import relative_name, PROTOCOLS, MAX_RPC_BYTES, reject_links
@@ -52,15 +54,18 @@ def append_event(folder, row):
 
 
 class ContextService:
-    def __init__(self, root, audit_root, prefixes=(), files=(), config=None, cache=True):
+    def __init__(self, root, audit_root, prefixes=(), files=(), config=None, router_config=None, cache=True):
         self.scope = SourceScope(root, prefixes, files)
         self.audit = private_external(audit_root, self.scope.root)
         self.config = config
         self.cache = ResultCache(self.audit, enabled=cache)
         self.engine = SemanticEngine(self.scope, self.audit, config, cache=cache) if config is not None else None
+        self.query = QueryEngine(self.scope, self.audit, config, router_config, cache=cache)
 
     def tool_names(self):
-        return ('search', 'extract', 'semantic_query') if self.engine else ('search', 'extract')
+        names = ['search', 'extract', 'query']
+        if self.engine: names.append('semantic_query')
+        return tuple(names)
 
     def call(self, name, arguments):
         op_id, started = uuid.uuid4().hex, time.monotonic()
@@ -71,7 +76,9 @@ class ContextService:
         try:
             if name not in self.tool_names():
                 raise ValueError('Tool not enabled')
-            if name == 'semantic_query':
+            if name == 'query':
+                result, metrics = self.query.run(arguments)
+            elif name == 'semantic_query':
                 result, metrics = self.engine.run(arguments)
             else:
                 if name == 'search':
@@ -134,12 +141,24 @@ def tools(service):
                          required=['paths'], additionalProperties=False),
         annotations=dict(readOnlyHint=True, destructiveHint=False, openWorldHint=False))]
 
+    selector = dict(oneOf=[
+        shape('lines', dict(start=dict(type='integer',minimum=1), end=dict(type='integer',minimum=1)), ['start','end']),
+        shape('span', dict(start=dict(type='integer',minimum=0), end=dict(type='integer',minimum=1)), ['start','end']),
+        shape('literal', dict(needle=dict(type='string',minLength=1,maxLength=500), window=dict(type='integer',minimum=0,maximum=1024), max_regions=dict(type='integer',minimum=1,maximum=12)), ['needle']),
+        shape('python_symbol', dict(name=dict(type='string',minLength=1,maxLength=160)), ['name'])])
+    if service.query:
+        result.append(dict(name='query',
+            description='Smart bounded context query. Routes selected evidence to the principal, direct fragments, or an approved semantic worker. Jev sees only task text and aggregate metadata.',
+            inputSchema=dict(type='object', properties=dict(
+                selections=dict(type='array',minItems=1,maxItems=12,items=dict(type='object',
+                    properties=dict(path=dict(type='string'),select=selector),required=['path','select'],additionalProperties=False)),
+                question=dict(type='string',minLength=1,maxLength=4000),
+                questions=dict(type='array',minItems=1,maxItems=4,items=dict(type='string',minLength=1,maxLength=800)),
+                operation=dict(type='string',enum=['unknown','exploration','factual','generation','debugging','architecture','security','editing']),
+                search_results=dict(type='integer',minimum=0), known_symbols=dict(type='integer',minimum=0)),
+                required=['selections'],additionalProperties=False),
+            annotations=dict(readOnlyHint=True,destructiveHint=False,idempotentHint=False,openWorldHint=True)))
     if service.engine:
-        selector = dict(oneOf=[
-            shape('lines', dict(start=dict(type='integer',minimum=1), end=dict(type='integer',minimum=1)), ['start','end']),
-            shape('span', dict(start=dict(type='integer',minimum=0), end=dict(type='integer',minimum=1)), ['start','end']),
-            shape('literal', dict(needle=dict(type='string',minLength=1,maxLength=500), window=dict(type='integer',minimum=0,maximum=1024), max_regions=dict(type='integer',minimum=1,maximum=12)), ['needle']),
-            shape('python_symbol', dict(name=dict(type='string',minLength=1,maxLength=160)), ['name'])])
         result.append(dict(name='semantic_query',
             description='Optional interpretation over explicit fragments only. Prefer local extract for exact fields. One question OR up to four related questions; no whole-file fallback. Returns literal evidence and partial coverage.',
             inputSchema=dict(type='object', properties=dict(
@@ -195,22 +214,30 @@ def serve(service, inp=None, out=None):
         out.write(encoded(reply)+b'\n'); out.flush()
 
 
-def codex_arguments(root, audit_root, prefixes=(), files=(), config=None):
+def codex_arguments(root, audit_root, prefixes=(), files=(), config=None, router_config=None):
     args = ['-I', str(Path(__file__).resolve()), '--root', str(Path(root).resolve()),
             '--audit-root', str(Path(audit_root).resolve())]
     if config:
         args += ['--config', str(Path(config).resolve())]
+    if router_config:
+        args += ['--router-config', str(Path(router_config).resolve())]
     for p in prefixes: args += ['--allow-prefix', relative_name(p)]
     for p in files: args += ['--allow-file', relative_name(p)]
     if not prefixes and not files:
         raise ValueError('Explicit allowlist required')
     settings = dict(command=sys.executable, args=args, required=True, enabled=True,
                     startup_timeout_sec=20, tool_timeout_sec=185,
-                    enabled_tools=['search', 'extract']+(['semantic_query'] if config else []))
+                    enabled_tools=['search', 'extract', 'query']+(['semantic_query'] if config else []))
+    env_vars = ['CODEX_HOME']
     if config:
         cfg = delegate.load_config(str(config))
         settings['tool_timeout_sec'] = cfg.get('timeout_seconds', 120)+65
-        settings['env_vars'] = ['CODEX_HOME']+([cfg['api_key_env']] if cfg.get('api_key_env') else [])
+        if cfg.get('api_key_env'): env_vars.append(cfg['api_key_env'])
+    if router_config:
+        rcfg = jev_router.load_config(str(router_config))
+        env_vars.append(rcfg['api_key_env'])
+        settings['tool_timeout_sec'] = max(settings['tool_timeout_sec'], int(rcfg['timeout_seconds'])+30)
+    settings['env_vars'] = list(dict.fromkeys(env_vars))
     return [x for k, v in settings.items() for x in ('-c', f'mcp_servers.{SERVER}.{k}='+json.dumps(v, ensure_ascii=True))]
 
 
@@ -219,9 +246,10 @@ def main():
     p.add_argument('--root', type=Path, required=True); p.add_argument('--audit-root', type=Path, required=True)
     p.add_argument('--allow-prefix', action='append', default=[]); p.add_argument('--allow-file', action='append', default=[])
     p.add_argument('--config', type=Path)
+    p.add_argument('--router-config', type=Path)
     p.add_argument('--no-cache', action='store_true', help='Disable local result reuse, not provider caching')
     a = p.parse_args()
-    return serve(ContextService(a.root, a.audit_root, a.allow_prefix, a.allow_file, a.config, cache=not a.no_cache))
+    return serve(ContextService(a.root, a.audit_root, a.allow_prefix, a.allow_file, a.config, a.router_config, cache=not a.no_cache))
 
 
 if __name__ == '__main__':

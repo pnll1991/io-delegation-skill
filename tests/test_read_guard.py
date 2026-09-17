@@ -250,6 +250,15 @@ class InstallHookTests(unittest.TestCase):
         self.assertEqual(self.install('cursor').returncode, 0)
         self.assertEqual(json.loads(p.read_text())['mode'], 'observe')
 
+    def test_explicit_mode_updates_policy(self):
+        first = self.install('codex', '--mode', 'observe')
+        self.assertEqual(first.returncode, 0, first.stderr)
+        p = self.root / '.io-delegation-hooks/policy.json'
+        self.assertEqual(json.loads(p.read_text())['mode'], 'observe')
+        second = self.install('codex', '--mode', 'enforce')
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(json.loads(p.read_text())['mode'], 'enforce')
+
     def test_modified_runtime_not_overwritten(self):
         self.assertEqual(self.install().returncode, 0)
         p = self.root / '.io-delegation-hooks/read_guard.py';p.write_text('# custom')

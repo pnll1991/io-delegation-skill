@@ -31,7 +31,7 @@ def handshake(args):
     try:
         responses=[json.loads(x) for x in cp.stdout.splitlines()]
         names=[x['name'] for x in next(x['result']['tools'] for x in responses if x.get('id')==2)]
-        ok=cp.returncode==0 and not cp.timed_out and not cp.oversized and names in (['search','extract'],['search','extract','semantic_query'])
+        ok=cp.returncode==0 and not cp.timed_out and not cp.oversized and names in (['search','extract','query'],['search','extract','query','semantic_query'])
     except (ValueError,KeyError,StopIteration,TypeError):ok=False;names=[]
     return dict(ok=ok,model_calls=0,tools=names),cp
 

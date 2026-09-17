@@ -16,6 +16,12 @@ Projections:
 
 Large minified lines must use bounded search/spans, not whole-line output. Oversized results are explicitly rejected, never silently truncated and accepted.
 
+## Smart `query` tool
+
+V1 exposes `query` as the primary semantic context interface. It accepts explicit selected fragments plus a question and operation hint. It always works: without external services it applies local routing rules and returns bounded evidence. With an approved TypeSafe router config, Jev receives task text plus aggregate file metadata only. With an approved semantic worker, a `bulk_read` route can dispatch selected fragments to that worker.
+
+A `principal` route returns bounded evidence for reasoning in the main agent. `targeted_read` returns the selected fragments without another model. Router errors and low-confidence decisions fall back to local rules. `semantic_query` remains a compatibility interface for directly invoking the worker.
+
 ## Optional semantic worker
 
 An already reviewed `--config` outside the project enables `semantic_query`. It accepts explicit `selections` of `{path, select}`, plus `question` or up to four related `questions`. Selectors support lines/span, literal windows and Python symbols. Qualified Python methods retain the containing class; imports and module bindings are included. This is not whole-program dependency resolution. Other languages use explicit ranges/windows rather than a pretend AST parser.
