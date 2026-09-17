@@ -25,6 +25,13 @@ class HostRealTests(unittest.TestCase):
         cmd=mod.setup_command('claude',Path('P'),Path('worker.json'))
         self.assertIn('claude-code',cmd)
 
+    def test_codex_agent_mapping(self):
+        cmd=mod.setup_command('codex',Path('P'),Path('worker.json'))
+        self.assertIn('codex',cmd)
+        validate=mod.host_validate_command('codex',Path('P'),BASE/'host_suite.fixture.json',Path('O'))
+        self.assertIn('--host',validate)
+        self.assertIn('codex',validate)
+
     def test_remove_purges_fixture_data_not_runtime(self):
         cmd=mod.remove_command(Path('P'))
         self.assertIn('--purge-data',cmd)
