@@ -16,7 +16,7 @@ SECRET_ENV = re.compile(r'(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)', re.I)
 ALLOWED_TOP = {
     'schema', 'run_id', 'task_id', 'family', 'repo', 'commit', 'arm', 'host',
     'started_at', 'ended_at', 'success', 'activation', 'route', 'principal',
-    'router', 'worker', 'context', 'timing', 'validator', 'rework', 'errors',
+    'router', 'worker', 'context', 'timing', 'validator', 'conditions', 'rework', 'errors',
     'notes', 'tags',
 }
 FORBIDDEN_KEYS = {
@@ -27,6 +27,12 @@ TOKEN_KEYS = (
     'input_tokens', 'output_tokens', 'cached_input_tokens',
     'cache_write_input_tokens', 'reasoning_output_tokens',
 )
+CONDITION_VALUES={
+    'principal_process': {'cold','warm','unknown'},
+    'context_cache': {'cold','warm','disabled','unknown'},
+    'provider_cache': {'reported','unreported','unknown'},
+    'worktree': {'fresh','reused','unknown'},
+}
 
 
 def _int_or_none(value):
@@ -82,6 +88,16 @@ def _usage(value, label):
     for key in TOKEN_KEYS:
         if not _int_or_none(value.get(key)):
             raise ValueError(f'{label}.{key} invalid')
+
+
+def _conditions(value):
+    if value is None: return
+    if not isinstance(value,dict): raise ValueError('conditions invalid')
+    extra=set(value)-set(CONDITION_VALUES)
+    if extra: raise ValueError('unknown condition fields: '+', '.join(sorted(extra)))
+    for key,allowed in CONDITION_VALUES.items():
+        if key in value and value[key] not in allowed:
+            raise ValueError('conditions.'+key+' invalid')
 
 
 def validate(record):
@@ -155,6 +171,7 @@ def validate(record):
         or validator.get('status') not in ('pass', 'fail', 'error', 'timeout', 'human_review', None)
     ):
         raise ValueError('validator invalid')
+    _conditions(record.get('conditions'))
     if not _int_or_none(record.get('rework')):
         raise ValueError('rework invalid')
     if record.get('errors') is not None and not isinstance(record['errors'], list):
@@ -236,6 +253,17 @@ def _selection_ratio(row):
     return None
 
 
+def _condition_counts(items):
+    result={}
+    for key in CONDITION_VALUES:
+        counts={}
+        for item in items:
+            value=_get(item,'conditions',key) or 'unknown'
+            counts[value]=counts.get(value,0)+1
+        result[key]=counts
+    return result
+
+
 def _arm_summary(items):
     return {
         'runs': len(items),
@@ -257,6 +285,7 @@ def _arm_summary(items):
             (_get(item, 'worker', 'calls') or 0) > 0 and _get(item, 'worker', 'usage') is None
             for item in items
         ),
+        'conditions': _condition_counts(items),
     }
 
 
