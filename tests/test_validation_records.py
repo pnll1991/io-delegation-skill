@@ -143,6 +143,18 @@ class RecordTests(unittest.TestCase):
         value['context'] = {'source_bytes': 0, 'selected_bytes': 0, 'result_bytes': 0}
         self.assertIsNone(mod.summarize([value])['overall']['gateway']['selected_source_ratio']['median'])
 
+    def test_summary_reports_routes_fallbacks_worker_follow_and_agent_system_tokens(self):
+        value=row()
+        value['route']['model_route']='bulk_read'
+        value['router']['called']=True
+        value['worker'].update({'calls':1,'accepted':1,'raw_tokens':5})
+        summary=mod.summarize([value])['overall']['gateway']
+        self.assertEqual(summary['route_counts'],{'targeted_read':1})
+        self.assertEqual(summary['model_route_counts'],{'bulk_read':1})
+        self.assertEqual(summary['fallback_rate'],0)
+        self.assertEqual(summary['worker_follow_rate'],1)
+        self.assertEqual(summary['agent_system_tokens']['median'],17)
+
     def test_windows_path_serializes(self):
         value = row()
         value['repo'] = r'D:\repo\x'

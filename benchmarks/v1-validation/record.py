@@ -253,6 +253,23 @@ def _selection_ratio(row):
     return None
 
 
+def _agent_system_tokens(row):
+    principal=_get(row,'principal','raw_tokens')
+    calls=_get(row,'worker','calls') or 0
+    worker=_get(row,'worker','raw_tokens')
+    if type(principal) is not int: return None
+    if not calls: return principal
+    return principal+worker if type(worker) is int else None
+
+
+def _route_counts(items, key):
+    counts={}
+    for item in items:
+        value=_get(item,'route',key)
+        if value is not None: counts[value]=counts.get(value,0)+1
+    return counts
+
+
 def _condition_counts(items):
     result={}
     for key in CONDITION_VALUES:
@@ -265,17 +282,28 @@ def _condition_counts(items):
 
 
 def _arm_summary(items):
+    router_calls=sum(_get(item,'router','called') is True for item in items)
+    fallbacks=sum(bool(_get(item,'route','fallback')) for item in items)
+    bulk=sum(_get(item,'route','model_route') == 'bulk_read' for item in items)
+    followed=sum(_get(item,'route','model_route') == 'bulk_read' and (_get(item,'worker','calls') or 0)>0 for item in items)
     return {
         'runs': len(items),
         'success_rate': sum(item.get('success') is True for item in items) / len(items),
         'principal_tokens': _quartiles([_get(item, 'principal', 'raw_tokens') for item in items]),
+        'agent_system_tokens': _quartiles([_agent_system_tokens(item) for item in items]),
         'wall_ms': _quartiles([_get(item, 'timing', 'wall_ms') for item in items]),
         'selected_bytes': _quartiles([_get(item, 'context', 'selected_bytes') for item in items]),
         'source_bytes': _quartiles([_get(item, 'context', 'source_bytes') for item in items]),
         'selected_source_ratio': _quartiles([_selection_ratio(item) for item in items]),
-        'router_calls': sum(_get(item, 'router', 'called') is True for item in items),
+        'route_counts': _route_counts(items,'effective'),
+        'model_route_counts': _route_counts(items,'model_route'),
+        'router_calls': router_calls,
         'worker_calls': sum((_get(item, 'worker', 'calls') or 0) for item in items),
-        'fallbacks': sum(bool(_get(item, 'route', 'fallback')) for item in items),
+        'fallbacks': fallbacks,
+        'fallback_rate': fallbacks/router_calls if router_calls else None,
+        'bulk_recommendations': bulk,
+        'worker_followed_bulk': followed,
+        'worker_follow_rate': followed/bulk if bulk else None,
         'unknown_principal_usage': sum(_get(item, 'principal', 'raw_tokens') is None for item in items),
         'unknown_router_usage': sum(
             _get(item, 'router', 'called') is True and _get(item, 'router', 'usage') is None
