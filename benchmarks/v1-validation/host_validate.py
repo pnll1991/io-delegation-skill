@@ -112,9 +112,8 @@ def validator(project, commands, timeout=120):
 
 
 def parse_usage(raw):
-    try:
-        value = json.loads(raw.decode('utf-8-sig'))
-    except (ValueError, UnicodeError):
+    values=_parsed_output_values(raw)
+    if not values:
         return None
     candidates = []
     def walk(item):
@@ -127,7 +126,8 @@ def parse_usage(raw):
         elif isinstance(item, list):
             for child in item:
                 walk(child)
-    walk(value)
+    for value in values:
+        walk(value)
     if not candidates:
         return None
     item = candidates[-1]
@@ -146,7 +146,6 @@ def parse_usage(raw):
     if result['input_tokens'] is None or result['output_tokens'] is None:
         return None
     return result
-
 
 
 def _parsed_output_values(raw):
