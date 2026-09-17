@@ -1,99 +1,179 @@
 # Context Gateway V1 validation
 
-This directory is the common evidence pipeline for dogfood, repeated routing A/B, semantic-worker experiments and cross-host validation.
+This directory is the common evidence pipeline for dogfood, activation-gate measurement, repeated Jev A/B, semantic-worker isolation, three-host parity and release readiness.
 
 ## Rules
 
 - Functional correctness comes before efficiency.
 - Missing usage is `null`, never zero.
-- Codex/principal, TypeSafe/Jev and worker token domains stay separate.
-- Do not attribute an effect to Jev or the worker when that component was not called.
+- Principal, TypeSafe/Jev and worker token domains stay separate.
+- Do not attribute an effect to Jev or the worker unless that component was actually called.
 - Run records persist metadata/accounting, not raw source contents.
 - Preserve negative runs and failed pairs; do not replace history with cleaner retries.
+- Threshold calibration never edits production config automatically.
 
-## Components
+## Core components
 
-- `record.py` — versioned JSONL schema, validation, redaction and summaries.
-- `experiment.py` — one-run worktree mechanics and explicit gateway/Jev/worker arms.
-- `run.py` — immutable plan, schema/preflight modes and resumable orchestration.
+- `record.py` — versioned JSONL records, redaction and summaries.
+- `experiment.py` — detached-worktree mechanics and explicit gateway/Jev/worker arms.
+- `run.py` — immutable plans, preflight and resume.
+- `run_real.py` — expands machine-local variables without persisting them.
 - `paired.py` — paired deltas and causal-attribution warnings.
-- `validators.py` — independent static gold calculation for real repositories.
-- `run_real.py` — expands machine-local variables and invokes the resumable runner.
-- `preflight_real.py` — computes every real-task gold at pinned commits with zero model calls.
-- `host_validate.py` — authenticated Claude Code / Cursor headless host runner.
-- `dogfood.real.template.json` — 20 tasks across 3 real repositories.
+- `validators.py` — independent scope-aware static gold calculation.
+- `preflight_real.py` — validates all real dogfood golds with zero model calls.
+- `security_audit.py` — bounded secret/content telemetry scan.
+- `release_evidence.py` — fail-closed product/release gates.
 
-## Real dogfood
+## Machine-local variables
 
-Set machine-local variables; never commit credentials or local paths:
+Never commit credentials or local paths:
 
 ```text
 CAMARA_REPO=<path>
 KUATROMETRIC_REPO=<path>
 STEROID_REPO=<path>
-IO_ROUTER_CONFIG=<approved TypeSafe router config outside project>
-IO_WORKER_CONFIG=<approved semantic worker config outside project>
+IO_ROUTER_CONFIG=<approved TypeSafe config outside project>
+IO_WORKER_CONFIG=<approved worker config outside project>
 ```
 
-The TypeSafe API key remains only in the environment referenced by the router config.
+The TypeSafe key remains only in the environment named by the router config.
 
-Run the strong offline preflight first:
+## T11 activation gate
+
+First classify the 20 real tasks without Codex/Jev/worker calls:
 
 ```bash
-python benchmarks/v1-validation/preflight_real.py benchmarks/v1-validation/dogfood.real.template.json
+python benchmarks/v1-validation/activation_preflight.py \
+  benchmarks/v1-validation/dogfood.real.template.json
 ```
 
-It validates pinned commits/configs/task mix and calculates all validator golds in temporary detached worktrees. Expected `model_calls` is `0`.
+Small controls must bypass; broad understanding/audit/cross-file families must enable. Mismatches are evidence, not an instruction to auto-tune thresholds.
 
-Then execute into a new output directory:
+The held-out overhead sample is:
+
+```text
+activation.real.template.json
+3 tasks × 2 arms × 5 repetitions = 30 runs
+gate-auto vs gate-always
+Jev off, worker off
+```
+
+Execute it through `run_real.py`, then evaluate:
 
 ```bash
-python benchmarks/v1-validation/run_real.py benchmarks/v1-validation/dogfood.real.template.json --output <new-dir>
+python benchmarks/v1-validation/activation_evidence.py <run-dir>/runs.jsonl \
+  --output <run-dir>/activation-evidence.json
 ```
 
-If interrupted, resume the exact immutable plan:
+## Real dogfood
+
+Strong offline preflight:
 
 ```bash
-python benchmarks/v1-validation/run_real.py benchmarks/v1-validation/dogfood.real.template.json --output <same-dir> --resume
+python benchmarks/v1-validation/preflight_real.py \
+  benchmarks/v1-validation/dogfood.real.template.json
 ```
 
-Completed run IDs are skipped; an incomplete run directory is archived under `interrupted/` before retry. Never delete a failure to make the sample cleaner.
+Expected: 20 tasks, 3 pinned repositories, 5 required families, `model_calls=0`.
 
-## Generic schema/preflight/run
+Official execution is one randomized/interleaved 40-run plan:
 
 ```bash
-python benchmarks/v1-validation/run.py local-manifest.json --schema-only
-python benchmarks/v1-validation/run.py local-manifest.json --preflight
-python benchmarks/v1-validation/run.py local-manifest.json --output <new-dir>
+python benchmarks/v1-validation/run_real.py \
+  benchmarks/v1-validation/dogfood.real.template.json --output <new-dir>
 ```
 
-Each task runs in a detached worktree at its pinned commit. A `bypass` arm does not attach the Context Gateway skill/MCP. Raw Codex JSONL is removed after accounting unless `--keep-raw` is explicitly used for debugging.
+Resume without overwriting history:
+
+```bash
+python benchmarks/v1-validation/run_real.py \
+  benchmarks/v1-validation/dogfood.real.template.json --output <same-dir> --resume
+```
+
+## Repeated Jev A/B
+
+`jev.real.template.json` defines 4 families × 2 arms × 5 repetitions = 40 runs. Both arms keep model, worker availability, scope and validators fixed; only Jev recommendation differs.
+
+Preflight uses the normal resumable runner and must report zero model calls. TypeSafe usage/latency stays separate from principal+worker accounting.
+
+Threshold calibration lives under `benchmarks/typesafe-router/calibrate.py`; calibration and holdout cases are distinct.
+
+## Semantic-worker isolation
+
+`worker_ab.real.template.json` contains 5 real worker-eligible tasks. The two arms receive the same preselected bundle:
+
+- `direct-selected`
+- `semantic-worker`
+
+Jev is disabled. The principal runs in an empty read-only workspace with shell, tools, multi-agent and network disabled.
+
+Portable launcher/preflight:
+
+```bash
+python benchmarks/v1-validation/worker_ab_real.py \
+  benchmarks/v1-validation/worker_ab.real.template.json --preflight
+```
+
+Expected: 5 tasks × 2 arms × 5 repetitions = 50 planned runs, zero model calls during preflight.
 
 ## Validate and summarize
 
 ```bash
 python benchmarks/v1-validation/record.py validate <run-dir>/runs.jsonl
-python benchmarks/v1-validation/record.py summary <run-dir>/runs.jsonl --output <run-dir>/summary.json
-python benchmarks/v1-validation/paired.py <run-dir>/runs.jsonl --left control --right gateway-smart --output <run-dir>/paired.json
+python benchmarks/v1-validation/record.py summary <run-dir>/runs.jsonl \
+  --output <run-dir>/summary.json
+python benchmarks/v1-validation/paired.py <run-dir>/runs.jsonl \
+  --left control --right gateway-smart --output <run-dir>/paired.json
 ```
 
-Paired efficiency excludes failed/incomplete pairs and warns if Jev or the semantic worker was never invoked.
+Failed/incomplete pairs are never used for efficiency deltas.
 
-## Causal arms
+## Authenticated host parity
 
-Typical arms:
+The deterministic four-file fixture covers the same four route classes on Codex, Claude Code and Cursor:
 
-- `control`: no gateway, Jev or worker.
-- `gateway-local`: activation + local context tools, no external model.
-- `gateway-jev`: gateway + Jev, no worker.
-- `gateway-jev-worker`: gateway + Jev + approved semantic worker.
+```text
+deterministic search
+targeted query
+principal security query
+bulk factual query
+```
 
-For worker-only measurement, keep Jev fixed/disabled and compare direct selected evidence against the same selected evidence sent through the worker.
+`host_validate.py` isolates each host from unrelated tools/config while recording actual MCP audit behavior. `host_real.py` executes the full lifecycle:
 
-## Host validation
+```text
+fixture
+→ setup
+→ 4 authenticated cases
+→ move project
+→ refresh setup
+→ doctor
+→ security scan
+→ remove
+```
 
-`host_validate.py` supports `claude` and Cursor `agent` once those hosts are installed and authenticated. It does not use skip-all-permissions flags. Run the same deterministic/targeted/principal/multi-file mix and store results via `record.py` before closing #8.
+Once all three CLIs are authenticated, run them together:
+
+```bash
+python benchmarks/v1-validation/host_parity_real.py \
+  --worker-config <approved-worker-config> --output <new-dir>
+```
+
+The output includes `parity.json`, `parity.md`, combined `security.json`, per-host run records and lifecycle evidence. Release parity requires all three hosts and all lifecycle phases to pass.
+
+## Release evidence
+
+`release_evidence.py` fails closed unless all of these exist and pass:
+
+- 20-task dogfood quality/context/safety gates;
+- separate T11 held-out activation evidence;
+- repeated Jev causal evidence where Jev was actually called;
+- isolated worker evidence where the worker was actually called;
+- Codex/Claude/Cursor parity with complete lifecycle;
+- clean security audit.
+
+No single token-savings percentage is treated as a release criterion.
 
 ## Security
 
-Worker/router configs live outside target repositories. Task scopes are explicit. Sensitive paths are rejected from manifests. Secret-looking environment values are redacted from run records. The committed real-task template stores environment-variable placeholders rather than machine-local paths.
+Worker/router configs live outside target repositories. Scopes are explicit. Sensitive paths are rejected. Secret-looking environment values are redacted from run records. Real-task templates contain environment placeholders rather than machine-local paths. Host validation stores bounded metadata/results and validates final JSON in memory rather than granting write access just to create benchmark files.
