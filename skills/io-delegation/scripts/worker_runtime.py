@@ -213,10 +213,10 @@ def codex_preflight(executable):
 
 def _script_command(executable, args):
     """Run trusted CLI launchers without shell=True; Windows .cmd uses COMSPEC."""
-    path = Path(executable)
-    if os.name == 'nt' and path.suffix.lower() in ('.cmd', '.bat'):
-        return [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/s', '/c', executable, *args]
-    return [executable, *args]
+    value = str(executable)
+    if os.name == 'nt' and value.lower().endswith(('.cmd', '.bat')):
+        return [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/s', '/c', value, *args]
+    return [value, *args]
 
 
 def cursor_preflight(executable):
