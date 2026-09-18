@@ -301,12 +301,31 @@ def choose(cfg: dict[str, Any], host: str | None, scores: dict[str, Any], operat
 
     demand = task_demand(scores, policy["preset"])
     table = policy["table"]
+    eligible = [
+        (index, table[pid])
+        for index, pid in enumerate(policy["order"])
+        if table[pid]["capability"] >= demand
+    ]
     selected = None
     selected_index = None
-    for index, pid in enumerate(policy["order"]):
-        if table[pid]["capability"] >= demand:
-            selected, selected_index = table[pid], index
-            break
+    if eligible:
+        # Optimize estimated validated-task efficiency, not raw model size. cost_index
+        # is normalized within each host and can be overridden by the operator.
+        def objective(row):
+            index, profile = row
+            capability = max(.01, float(profile["capability"]))
+            expected_cost = float(profile["cost_index"]) / capability
+            quality_penalty = 1.0 - capability
+            steps = float(profile.get("benchmark_steps", 0) or 0)
+            latency_penalty = min(1.0, steps / 100.0) if steps else 0.0
+            if policy["preset"] == "cost":
+                value = .92 * expected_cost + .08 * latency_penalty
+            elif policy["preset"] == "quality":
+                value = .30 * expected_cost + .65 * quality_penalty + .05 * latency_penalty
+            else:
+                value = .70 * expected_cost + .20 * quality_penalty + .10 * latency_penalty
+            return (value, index)
+        selected_index, selected = min(eligible, key=objective)
     if selected is None:
         return dict(decision="principal", reason="model_ceiling_insufficient",
                     host=policy["host"], preset=policy["preset"], demand=demand,
@@ -351,8 +370,12 @@ def apply_profile(cfg: dict[str, Any], host: str | None, profile: dict[str, Any]
     if adapter == "host-cli":
         if host == "codex":
             adapter = "codex-cli"
+            if cfg.get("codex_executable"):
+                derived["executable"] = cfg["codex_executable"]
         elif host == "cursor":
             adapter = "cursor-cli"
+            if cfg.get("cursor_executable"):
+                derived["executable"] = cfg["cursor_executable"]
         else:
             raise ModelPolicyError("host-cli requires Codex or Cursor host")
         derived["adapter"] = adapter
@@ -384,8 +407,16 @@ def apply_profile(cfg: dict[str, Any], host: str | None, profile: dict[str, Any]
 def summary(cfg: dict[str, Any], hosts: list[str] | tuple[str, ...],
             preset_override: str | None = None) -> dict[str, Any]:
     result = {}
+    adapter = cfg.get("adapter")
+    explicit = cfg.get("model_policy") is not None
+    if not explicit and adapter not in ("codex-cli", "cursor-cli", "host-cli"):
+        return result
     for host in hosts:
         if host not in ("codex", "cursor"):
+            continue
+        if not explicit and adapter == "codex-cli" and host != "codex":
+            continue
+        if not explicit and adapter == "cursor-cli" and host != "cursor":
             continue
         try:
             policy = resolve(cfg, host, preset_override)
