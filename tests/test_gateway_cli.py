@@ -257,6 +257,32 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(config.read_bytes(),before)
         self.assertEqual(gateway.load_state(self.project)['compaction_api_key_env'],'TYPESAFE_API_KEY')
 
+    def test_legacy_state_recovers_compute_credential_name(self):
+        worker=self.base/'legacy-compute-worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=['worker-fixture'],timeout_seconds=5)))
+        code,text,err=self.setup_codex('--worker-config',str(worker))
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        path=Path(state['_state_path'])
+        row=gateway.read_json(path)
+        row.pop('credential_env_names',None)
+        gateway.atomic_write(path,gateway.encoded(row))
+        status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
+        self.assertIn('TYPESAFE_API_KEY',status['credential_envs'])
+
+    def test_doctor_reports_compute_orchestration_without_calling_jev(self):
+        worker=self.base/'doctor-compute-worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=['worker-fixture'],timeout_seconds=5)))
+        code,text,err=self.setup_codex('--worker-config',str(worker))
+        self.assertEqual(code,0,err)
+        code,text,err=self.cli('doctor','--project',str(self.project))
+        self.assertEqual(code,0,err)
+        self.assertIn('Jev compute orchestration',text)
+        self.assertIn('Jev compute key',text)
+        self.assertIn('cheap-first worker',text)
+
     def test_worker_status_distinguishes_configured_from_auto_dispatch(self):
         worker=self.base/'worker.json'
         worker.write_text(json.dumps(dict(approved=True,adapter='command',argv=['worker-fixture'])))
