@@ -20,7 +20,7 @@ from worker_mcp import relative_name, PROTOCOLS, MAX_RPC_BYTES, reject_links
 import io_delegate as delegate
 
 SERVER = 'io_context'
-VERSION = '0.5.0'
+VERSION = '0.6.0'
 MAX_RESULT_BYTES = 24_000
 
 
@@ -55,14 +55,15 @@ def append_event(folder, row):
 
 class ContextService:
     def __init__(self, root, audit_root, prefixes=(), files=(), config=None, router_config=None,
-                 orchestrator_config=None, cache=True):
+                 orchestrator_config=None, cache=True, host=None, model_preset=None):
         self.scope = SourceScope(root, prefixes, files)
         self.audit = private_external(audit_root, self.scope.root)
         self.config = config
         self.cache = ResultCache(self.audit, enabled=cache)
         self.engine = SemanticEngine(self.scope, self.audit, config, cache=cache) if config is not None else None
         self.query = QueryEngine(self.scope, self.audit, config, router_config,
-                                 orchestrator_config=orchestrator_config, cache=cache)
+                                 orchestrator_config=orchestrator_config, cache=cache,
+                                 host=host, model_preset=model_preset)
 
     def tool_names(self):
         return ('search', 'extract', 'query')
@@ -146,7 +147,7 @@ def tools(service):
         shape('python_symbol', dict(name=dict(type='string',minLength=1,maxLength=160)), ['name'])])
     if service.query:
         result.append(dict(name='query',
-            description='Smart bounded context query. Uses local rules plus optional Jev routing/compute scoring; approved cheap workers are validated and escalate to the principal on failure. Jev sees only task text and aggregate metadata.',
+            description='Smart bounded context query. Uses local rules plus optional Jev routing/compute scoring; approved host-aware model workers are selected by local policy, validated against literal evidence, and bounded by user ceilings/escalation limits. Jev sees only task text and aggregate metadata.',
             inputSchema=dict(type='object', properties=dict(
                 selections=dict(type='array',minItems=1,maxItems=12,items=dict(type='object',
                     properties=dict(path=dict(type='string'),select=selector),required=['path','select'],additionalProperties=False)),
@@ -203,15 +204,17 @@ def serve(service, inp=None, out=None):
 
 
 def codex_arguments(root, audit_root, prefixes=(), files=(), config=None, router_config=None,
-                    orchestrator_config=None):
+                    orchestrator_config=None, model_preset=None):
     args = ['-I', str(Path(__file__).resolve()), '--root', str(Path(root).resolve()),
-            '--audit-root', str(Path(audit_root).resolve())]
+            '--audit-root', str(Path(audit_root).resolve()), '--host', 'codex']
     if config:
         args += ['--config', str(Path(config).resolve())]
     if router_config:
         args += ['--router-config', str(Path(router_config).resolve())]
     if orchestrator_config:
         args += ['--orchestrator-config', str(Path(orchestrator_config).resolve())]
+    if model_preset:
+        args += ['--model-preset', str(model_preset)]
     for p in prefixes: args += ['--allow-prefix', relative_name(p)]
     for p in files: args += ['--allow-file', relative_name(p)]
     if not prefixes and not files:
@@ -244,10 +247,13 @@ def main():
     p.add_argument('--config', type=Path)
     p.add_argument('--router-config', type=Path)
     p.add_argument('--orchestrator-config', type=Path)
+    p.add_argument('--host', choices=['codex','cursor','claude-code'])
+    p.add_argument('--model-preset', choices=['cost','balanced','quality'])
     p.add_argument('--no-cache', action='store_true', help='Disable local result reuse, not provider caching')
     a = p.parse_args()
     return serve(ContextService(a.root, a.audit_root, a.allow_prefix, a.allow_file, a.config,
-                                a.router_config, a.orchestrator_config, cache=not a.no_cache))
+                                a.router_config, a.orchestrator_config, cache=not a.no_cache,
+                                host=a.host, model_preset=a.model_preset))
 
 
 if __name__ == '__main__':

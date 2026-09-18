@@ -84,7 +84,7 @@ def inactive_serve(inp=None, out=None):
             continue
 
 
-def configured_serve(root, state):
+def configured_serve(root, state, host=None):
     scripts = Path(__file__).resolve().parent
     sys.path.insert(0, str(scripts))
     from context_activation import decide as activation_decide
@@ -104,13 +104,16 @@ def configured_serve(root, state):
                              files=state.get('allow_files', ()),
                              config=Path(worker) if worker else None,
                              router_config=Path(router) if router else None,
-                             orchestrator_config=Path(orchestrator) if orchestrator else None)
+                             orchestrator_config=Path(orchestrator) if orchestrator else None,
+                             host=host,
+                             model_preset=state.get('model_policy_preset','balanced'))
     return serve(service)
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--project', help='Explicit workspace root; otherwise resolve from MCP cwd')
+    p.add_argument('--host', choices=['codex','cursor','claude-code'])
     a = p.parse_args(argv)
     try:
         start = Path(a.project).expanduser() if a.project else Path.cwd()
@@ -118,7 +121,7 @@ def main(argv=None):
         if root is None:
             return inactive_serve()
         state = load_state(root, marker)
-        return configured_serve(root, state)
+        return configured_serve(root, state, a.host)
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         return inactive_serve()
 

@@ -56,6 +56,19 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(r['orchestrator_calls'],1)
         self.assertEqual(r['compute_tiers'],{'T1':1})
 
+    def test_operations_report_model_profiles_and_multi_escalations(self):
+        rows=[
+            dict(schema='io-context/v1',operation_id='x',event='operation_started',operation='query'),
+            dict(schema='io-context/v1',operation_id='x',event='operation_completed',operation='query',
+                 cache='disabled',model_calls=3,result_bytes=50,orchestrator_calls=1,
+                 orchestrator_input_tokens=8,orchestrator_output_tokens=2,
+                 compute_tier='T1',model_escalations=2,escalated=True,
+                 final_model_profile='terra-medium')
+        ]
+        r=operations(self.log('ops-model-policy',rows))
+        self.assertEqual(r['model_profiles'],{'terra-medium':1})
+        self.assertEqual(r['escalations'],2)
+
     def test_missing_orchestrator_usage_is_not_free(self):
         rows=[
             dict(schema='io-context/v1',operation_id='x',event='operation_started',operation='query'),

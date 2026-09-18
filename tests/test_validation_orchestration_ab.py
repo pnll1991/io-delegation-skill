@@ -15,7 +15,9 @@ def pair(i,baseline=1000,orchestrated=700,quality=True,tier='T1',escalated=False
         orchestrated=dict(quality_pass=quality,accounting_complete=True,
                           principal_tokens=500,worker_tokens=max(0,orchestrated-550),
                           control_tokens=50,wall_ms=90),
-        tier=tier,escalated=escalated)
+        tier=tier,escalated=escalated,initial_profile='luna-medium',
+        final_profile='luna-high' if escalated else 'luna-medium',
+        model_attempts=2 if escalated else 1)
 
 
 class OrchestrationABTests(unittest.TestCase):
@@ -46,6 +48,8 @@ class OrchestrationABTests(unittest.TestCase):
         result=ab.evaluate(dict(schema=ab.SCHEMA,pairs=rows))
         self.assertEqual(result['tiers'],{'T0':0,'T1':1,'T2':1})
         self.assertEqual(result['escalation_rate'],.5)
+        self.assertEqual(result['final_profiles'],{'luna-medium':1,'luna-high':1})
+        self.assertEqual(result['model_attempts'],3)
 
     def test_invalid_or_duplicate_pairs_rejected(self):
         row=pair(0)

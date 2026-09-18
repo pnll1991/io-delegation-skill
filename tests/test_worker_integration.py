@@ -79,6 +79,39 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(d.DelegateError):
             d.load_config(str(cfg))
 
+    def test_host_cli_model_policy_is_validated(self):
+        cfg=self.root/'host-policy.json'
+        cfg.write_text(json.dumps(dict(
+            approved=True,adapter='host-cli',timeout_seconds=5,
+            model_policy={'preset':'balanced','hosts':{'codex':{
+                'max_profile':'astra-low'
+            },'cursor':{
+                'max_profile':'sol-high'
+            }}}
+        )))
+        row=d.load_config(str(cfg))
+        self.assertEqual(row['adapter'],'host-cli')
+        self.assertEqual(row['model_policy']['preset'],'balanced')
+
+    def test_invalid_host_cli_ceiling_rejected(self):
+        cfg=self.root/'host-policy-bad.json'
+        cfg.write_text(json.dumps(dict(
+            approved=True,adapter='host-cli',
+            model_policy={'hosts':{'codex':{'max_profile':'does-not-exist'}}}
+        )))
+        with self.assertRaises(d.DelegateError):
+            d.load_config(str(cfg))
+
+    def test_model_policy_and_legacy_compute_profiles_are_mutually_exclusive(self):
+        cfg=self.root/'mixed-policy.json'
+        cfg.write_text(json.dumps(dict(
+            approved=True,adapter='codex-cli',model='x',
+            compute_profiles={'cheap':{'model':'y'}},
+            model_policy={'preset':'balanced'}
+        )))
+        with self.assertRaises(d.DelegateError):
+            d.load_config(str(cfg))
+
     def test_invalid_evidence_retains_usage(self):
         r=self.response(); a=json.loads(r['output']); a['findings'][0]['evidence']='not here'; r['output']=json.dumps(a)
         rc,_,_,u=self.invoke(self.cfg('print('+repr(json.dumps(r))+')'))

@@ -91,16 +91,19 @@ Para dejar un worker aprobado disponible, usar una configuración guardada fuera
 io-delegation setup --project . --worker-config /ruta/privada/worker.json
 ```
 
-Con un worker aprobado, setup usa `--orchestration auto` por defecto. Esto **no** significa enviar todo al worker: sólo candidatos factuales/bulk llegan al scorer Jev; thresholds locales de riesgo/suficiencia permiten como máximo un intento T1 barato, y evidencia inválida/incompleta escala al principal T2. Si falta `TYPESAFE_API_KEY`, el scorer falla cerrado a T2 y el worker no se despacha.
+Con un worker aprobado, setup usa `--orchestration auto` y el preset `balanced` por defecto. Esto **no** significa enviar todo al worker: sólo candidatos factuales/bulk llegan al scorer Jev; la política local elige el perfil suficiente con mejor objetivo costo/capacidad debajo del ceiling configurado. Evidencia válida pero incompleta puede subir un número acotado de perfiles; errores de transporte/configuración/presupuesto vuelven al principal. Si falta `TYPESAFE_API_KEY`, el scorer falla cerrado al principal y el worker no se despacha.
 
 Control explícito y persistente:
 
 ```bash
 io-delegation setup --project . --orchestration off
 io-delegation setup --project . --orchestration on
+io-delegation setup --project . --model-preset cost
+io-delegation setup --project . --model-preset balanced
+io-delegation setup --project . --model-preset quality
 ```
 
-El path histórico de auto-dispatch incondicional sigue separado y exige `"context_auto_dispatch": true`. Un `compute_profiles.cheap` opcional puede seleccionar un modelo/effort barato dentro del mismo adapter ya aprobado. Ver [ORCHESTRATION.md](../skills/io-delegation/references/ORCHESTRATION.md).
+Para usar una sola configuración desde Codex y Cursor, copiar `skills/io-delegation/assets/worker.host-cli.example.json` fuera del repo, revisarla y aprobarla. `status` y `doctor` muestran el ladder/ceiling efectivo por host. El usuario puede reemplazar perfiles y orden dentro de `model_policy`. El path histórico de auto-dispatch incondicional sigue separado y exige `"context_auto_dispatch": true`; `compute_profiles.cheap` se conserva sólo por compatibilidad. Ver [ORCHESTRATION.md](../skills/io-delegation/references/ORCHESTRATION.md).
 
 Para deshabilitar el worker existente:
 

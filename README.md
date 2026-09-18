@@ -10,7 +10,7 @@
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing remains optional; when an approved worker is configured, Jev can automatically orchestrate cheap-first T0/T1/T2 compute; Jev-guided context compaction is automatic by default.
+I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing remains optional; when an approved CLI worker is configured, Jev can drive a host-aware, cost/capability model policy for Codex and Cursor; Jev-guided context compaction is automatic by default.
 
 ```text
 agent -> io_context -> search / extract / query
@@ -20,7 +20,7 @@ agent -> io_context -> search / extract / query
                       targeted  principal  worker
 ```
 
-The gateway still works without an external model. Jev routing and compute scoring receive task text plus aggregate metadata, not source bodies or file names. When a worker is configured, compute orchestration can try one approved cheap worker and accepts it only after literal-evidence validation; otherwise it escalates to the principal. Automatic compaction uses Jev when its configured API key is available and has the broader conversation/tool-input data boundary documented below; if Jev is unavailable, native host compaction remains the fallback.
+The gateway still works without an external model. Jev routing and compute scoring receive task text plus aggregate metadata, not source bodies or file names. When a supported CLI worker is configured, local policy chooses the minimum efficient approved profile under the user's ceiling; validated incomplete results may escalate within a bounded ladder, while transport failures fall back to the principal. Automatic compaction uses Jev when its configured API key is available and has the broader conversation/tool-input data boundary documented below; if Jev is unavailable, native host compaction remains the fallback.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ io-delegation.cmd setup --project "D:\\path\\to\\project"
 ./io-delegation setup --project "/path/to/project"
 ```
 
-Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps experimental Jev **routing off by default**, enables **cheap-first compute orchestration automatically when an approved worker is configured**, enables **automatic context compaction by default**, keeps the read guard **off by default**, and runs `doctor`.
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps experimental Jev **routing off by default**, enables **host-aware compute orchestration automatically when an approved worker is configured**, uses the **balanced model preset by default**, enables **automatic context compaction by default**, keeps the read guard **off by default**, and runs `doctor`.
 
 Preview with zero writes, then inspect the installation at any time:
 
@@ -55,6 +55,7 @@ To configure specific hosts or behavior:
 io-delegation setup --project . --agent codex
 io-delegation setup --project . --agent all --jev on
 io-delegation setup --project . --worker-config /private/worker.json
+io-delegation setup --project . --model-preset balanced
 io-delegation setup --project . --orchestration off  # persistent project escape hatch
 io-delegation setup --project . --guard enforce
 io-delegation setup --project . --compaction off  # persistent escape hatch
@@ -62,7 +63,7 @@ io-delegation setup --project . --compaction off  # persistent escape hatch
 
 `TYPESAFE_API_KEY` being present does not auto-enable the experimental Jev route selector. Use `--jev on` (or an explicitly reviewed `--router-config`) when you want that router. Compute orchestration is separate: with an approved `--worker-config`, setup defaults to `--orchestration auto`; a missing TypeSafe key simply falls back to T2/principal without dispatching the worker.
 
-The older unconditional semantic-worker path still requires `"context_auto_dispatch": true`. Cheap-first orchestration does not: Jev must first pass deterministic risk/sufficiency thresholds, the worker gets one bounded attempt, and failed/unknown evidence escalates to the principal.
+The older unconditional semantic-worker path still requires `"context_auto_dispatch": true`. Host-aware orchestration does not: Jev scores task requirements, local policy selects an approved profile, and only valid-but-incomplete evidence may climb the bounded model ladder.
 
 Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP that resolves the active project from the current workspace, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
 
@@ -113,47 +114,42 @@ The installer preserves other settings and hooks, backs up changed configuration
 [Policy, supported forms, removal and real-host verification](skills/io-delegation/references/ENFORCEMENT.md) · [Hook tests](tests/test_read_guard.py)
 
 
-## Cheap-first Jev model orchestration
+## Host-aware Jev model orchestration
 
-With an approved worker, I/O Delegation can optimize **total cost per validated task** rather than sending every semantic read to the strongest model. Local routing first assigns obvious work to T0 or T2; Jev is called only for a bulk factual candidate.
+With an approved CLI worker, Jev scores task requirements while a **local, editable policy** chooses the model. The default is `balanced`; users can switch to `cost` or `quality` without editing JSON.
 
 ```text
-T0 local/deterministic
-        |
-bulk factual candidate -> Jev compute scores -> T1 cheap worker -> validator -> done
-                                      |                    |
-                                      |                    +-> fail/unknown -> T2 principal
-                                      +-> risk/uncertainty -> T2 principal
+bulk factual candidate
+        ↓
+Jev requirement scores
+        ↓
+local model policy
+   ┌────┴──────────────────────────────┐
+Codex                                 Cursor
+Luna medium                           Luna medium
+Luna high                             Luna high
+Terra medium                          Sol medium
+Sol medium                            Sol high
+Astra low  ← default hard ceiling
 ```
 
-The default scorer gates are conservative: cheap sufficiency must be at least 0.78, while high-risk, uncertainty and reasoning-required scores must remain below their configured bounds. Debugging, architecture, security, editing and generation are hard T2 paths. Jev never invents a provider or model.
+The selector does not blindly start at the cheapest model. It estimates normalized task demand, filters profiles above that demand and below the user's ceiling, then minimizes a preset-specific cost/capability objective. A difficult task can therefore start directly at Sol or Astra. A valid-but-incomplete answer may escalate to the next approved profile; timeouts, transport errors and unknown usage go directly back to the principal.
 
-An optional `compute_profiles.cheap` block in the already approved worker configuration can select a cheaper model/reasoning effort for Codex CLI or a cheaper model/output cap for a compatible Chat Completions worker. No profile means T1 uses the approved base worker.
-
-```json
-{
-  "approved": true,
-  "adapter": "codex-cli",
-  "model": "strong-default-model",
-  "reasoning_effort": "medium",
-  "compute_profiles": {
-    "cheap": {
-      "model": "approved-cheap-model",
-      "reasoning_effort": "low"
-    }
-  }
-}
-```
-
-Setup behavior:
+The defaults are host-specific. Codex uses current OpenAI positioning/pricing and caps at **Astra low**. Cursor uses CursorBench 4.0 efficiency data; its balanced ladder skips Terra because Luna-high had better benchmark score at much lower reported task cost. Astra is not in the default Cursor registry because the current Cursor model/benchmark data used for this policy does not list it.
 
 ```bash
-io-delegation setup --project . --worker-config /private/worker.json
-io-delegation setup --project . --orchestration off
-io-delegation setup --project . --orchestration on
+io-delegation setup --project . \
+  --worker-config /private/worker.host-cli.json \
+  --model-preset balanced
+
+# Other project-scoped presets
+io-delegation setup --project . --model-preset cost
+io-delegation setup --project . --model-preset quality
 ```
 
-Telemetry records T0/T1/T2, escalations, worker usage and Jev routing/orchestration usage. System accounting includes the Jev control-plane tokens; missing reported usage makes accounting incomplete instead of free. See [Jev compute orchestration](skills/io-delegation/references/ORCHESTRATION.md).
+Advanced users can replace the registry/order, lower or raise ceilings, block profiles, bound escalations, and explicitly opt into Cursor's native Router with an exact reviewed model string. Copy `skills/io-delegation/assets/worker.host-cli.example.json` as a starting point. Jev never invents model IDs.
+
+Telemetry records host, demand, selected profile/model/effort, attempts, escalations and reported worker/Jev usage. Unknown usage remains unknown. See [host-aware orchestration](skills/io-delegation/references/ORCHESTRATION.md) for defaults, research references and the full schema.
 
 ## Automatic Jev-guided context compaction
 
@@ -224,7 +220,7 @@ python skills/io-delegation/scripts/io_delegate.py inspect --root . --paths inst
 python skills/io-delegation/scripts/io_delegate.py bulk-read --root . --paths install.py --question "Which directories can the installer write to?" --dry-run
 ```
 
-For real delegation, follow [ADAPTERS.md](skills/io-delegation/references/ADAPTERS.md). Supported transports are a compatible Chat Completions endpoint or a reviewed command using JSON over stdin/stdout. Nothing is enabled by default. Never publish real worker configuration or credentials.
+For real delegation, follow [ADAPTERS.md](skills/io-delegation/references/ADAPTERS.md). Supported transports include reviewed Codex/Cursor host CLIs, dedicated Codex/Cursor CLI workers, a compatible Chat Completions endpoint, or a reviewed command using JSON over stdin/stdout. Worker inference still requires an approved external configuration. Never publish real worker configuration or credentials.
 
 ## Repository map
 

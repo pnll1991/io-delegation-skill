@@ -495,7 +495,7 @@ def toml_value(value):
 def codex_block(states):
     command, bootstrap = runtime_command(); envs=union_env_names(states)
     rows=[CODEX_BEGIN,'[mcp_servers.io_context]',f'command = {toml_value(command)}',
-          f'args = {toml_value([bootstrap])}','enabled = true','required = false',
+          f'args = {toml_value([bootstrap,"--host","codex"])}','enabled = true','required = false',
           'startup_timeout_sec = 20','tool_timeout_sec = 185',
           f'enabled_tools = {toml_value(["search","extract","query"])}']
     if envs: rows.append(f'env_vars = {toml_value(envs)}')
@@ -524,7 +524,7 @@ def update_codex_global(states, dry_run=False):
 
 def cursor_entry(states):
     command, bootstrap=runtime_command(); envs=union_env_names(states)
-    entry={'type':'stdio','command':command,'args':[bootstrap]}
+    entry={'type':'stdio','command':command,'args':[bootstrap,'--host','cursor']}
     if envs: entry['env']={name:f'${{env:{name}}}' for name in envs}
     return entry
 
@@ -582,7 +582,7 @@ def update_claude_user(states, dry_run=False, replace=False):
     if not need:
         return 'claude:user','removed' if owned else 'unchanged'
     command,bootstrap=runtime_command()
-    definition=json.dumps({'type':'stdio','command':command,'args':[bootstrap]},separators=(',',':'))
+    definition=json.dumps({'type':'stdio','command':command,'args':[bootstrap,'--host','claude-code']},separators=(',',':'))
     cp=subprocess.run([exe,'mcp','add-json',SERVER_NAME,definition,'--scope','user'],
                       capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=30)
     if cp.returncode:
@@ -784,7 +784,9 @@ def setup_choices(root,args,existing):
         router_mode=args.jev or DEFAULT_JEV_SETUP_MODE; router_source=None
     compaction=compaction_setup_mode(args,existing)
     orchestration=orchestration_setup_mode(args,existing)
-    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction,orchestration
+    model_preset=(args.model_preset if args.model_preset is not None else
+                  existing.get('model_policy_preset','balanced') if existing else 'balanced')
+    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction,orchestration,model_preset
 
 
 def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=False):
@@ -794,6 +796,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
           'compute_orchestration':bool(state.get('orchestrator_config')),
           'orchestration_preference':state.get('orchestration_preference','auto'),
+          'model_policy_preset':state.get('model_policy_preset','balanced'),
           'jev_compaction':state.get('compaction_mode')=='on',
           'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
           'worker_auto_dispatch':dispatch,
@@ -805,7 +808,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
-    print('Compute orchestration: '+('cheap-first' if state.get('orchestrator_config') else 'off'))
+    print('Compute orchestration: '+('host-aware / '+state.get('model_policy_preset','balanced') if state.get('orchestrator_config') else 'off'))
     print('Compaction: '+('automatic (project-scoped: '+', '.join(state.get('compaction_hosts',[]))+')' if state.get('compaction_mode')=='on' else 'off'))
     if state.get('worker_config'):
         print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
@@ -820,7 +823,7 @@ def command_setup(args):
     root=Path(args.project).expanduser().resolve(strict=True)
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
-    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction,orchestration=setup_choices(root,args,existing)
+    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction,orchestration,model_preset=setup_choices(root,args,existing)
     old_compaction_hosts=configured_compaction_hosts(existing)
 
     # Phase 1: resolve and validate the complete plan without writing anything.
@@ -853,6 +856,7 @@ def command_setup(args):
            'orchestrator_config':str(orchestrator_plan) if orchestrator_plan else None,
            'orchestrator_generated':bool(orchestrator_generated),
            'orchestration_preference':orchestration,
+           'model_policy_preset':model_preset,
            'credential_env_names':credentials,
            'compaction_mode':compaction,
            'compaction_preference':compaction,
@@ -961,7 +965,7 @@ def command_setup(args):
     print('Agents: '+', '.join(agents))
     print(f'Context scope: {len(prefixes)} folders + {len(files)} root files')
     print('Smart routing: '+('TypeSafe Jev' if router else 'local rules'))
-    print('Compute orchestration: '+('Jev cheap-first' if orchestrator else 'off'))
+    print('Compute orchestration: '+(('Jev host-aware ('+model_preset+')') if orchestrator else 'off'))
     print('Jev compaction: '+('automatic for '+', '.join(agents) if compaction=='on' else 'off'))
     print('Semantic worker: '+('configured' if worker else 'off'))
     print('Read guard: '+guard)
@@ -1085,11 +1089,15 @@ def audit_summary(state):
     for row in rows:
         tier=row.get('compute_tier')
         if tier: tiers[tier]=tiers.get(tier,0)+1
-    return {'operations':len(rows),'routes':routes,'compute_tiers':tiers,
+    profiles={}
+    for row in rows:
+        profile=row.get('final_model_profile')
+        if profile: profiles[profile]=profiles.get(profile,0)+1
+    return {'operations':len(rows),'routes':routes,'compute_tiers':tiers,'model_profiles':profiles,
             'model_calls':sum(int(r.get('model_calls',0) or 0) for r in rows),
             'router_calls':sum(int(r.get('router_calls',0) or 0) for r in rows),
             'orchestrator_calls':sum(int(r.get('orchestrator_calls',0) or 0) for r in rows),
-            'escalations':sum(r.get('escalated') is True for r in rows),
+            'escalations':sum(int(r.get('model_escalations',1 if r.get('escalated') is True else 0) or 0) for r in rows),
             'errors':sum(r.get('status') not in ('ok','insufficient_context') for r in rows),
             'cache_hits':sum(r.get('cache')=='hit' for r in rows)}
 
@@ -1124,12 +1132,25 @@ def status_data(root):
     guard_path=root/'.io-delegation-hooks/policy.json'
     guard=read_json(guard_path,{}) if guard_path.is_file() else {}
     envs=env_names_for_state(state)
+    model_policy_data={}
+    if state.get('worker_config'):
+        try:
+            sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import model_policy
+            raw=read_json(state['worker_config'],{})
+            model_policy_data=model_policy.summary(
+                raw if isinstance(raw,dict) else {},
+                state.get('agents',[]),
+                state.get('model_policy_preset','balanced'))
+        except Exception as exc:
+            model_policy_data={'error':str(exc)}
     return {'project':str(root),'stored_project':state.get('project'),'project_id':state['project_id'],
             'moved':str(root)!=state.get('project'),'agents':{a:registration_present(a) for a in state.get('agents',[])},
             'scope':{'prefixes':state.get('allow_prefixes',[]),'files':state.get('allow_files',[])},
             'runtime':runtime_bootstrap().is_file(),'smart_routing':bool(state.get('router_config')),
             'compute_orchestration':bool(state.get('orchestrator_config')),
             'orchestration_preference':state.get('orchestration_preference','auto'),
+            'model_policy_preset':state.get('model_policy_preset','balanced'),
+            'model_policy':model_policy_data,
             'jev_compaction':state.get('compaction_mode')=='on',
             'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
             'compaction_hosts':configured_compaction_hosts(state),
@@ -1157,7 +1178,10 @@ def command_status(args):
     print(f"Context scope {len(data['scope']['prefixes'])} folders + {len(data['scope']['files'])} files")
     print('Runtime       '+('ready' if data['runtime'] else 'missing'))
     print('Jev router    '+('enabled' if data['smart_routing'] else 'off'))
-    print('Compute       '+('cheap-first' if data['compute_orchestration'] else 'off'))
+    print('Compute       '+(('host-aware / '+data['model_policy_preset']) if data['compute_orchestration'] else 'off'))
+    for host,row in data.get('model_policy',{}).items():
+        if isinstance(row,dict) and 'order' in row:
+            print(f"Model policy  {host}: {' -> '.join(row['order'])} | max {row['max_profile']}")
     if data['jev_compaction']:
         detail=', '.join(f"{a}:{'ready' if ok else 'missing'}" for a,ok in data['compaction_adapters'].items())
         print('Compaction    automatic | '+detail)
@@ -1226,7 +1250,7 @@ def command_doctor(args):
             cfg=context_orchestrator.load_config(state['orchestrator_config']); key=cfg['api_key_env']
             add('Jev compute orchestration','pass',state['orchestrator_config'])
             add('Jev compute key','pass' if os.environ.get(key) else 'warn',key)
-            add('cheap-first worker','pass' if state.get('worker_config') else 'fail',
+            add('model worker','pass' if state.get('worker_config') else 'fail',
                 state.get('worker_config') or 'missing')
         except Exception as exc:
             add('Jev compute orchestration','fail',str(exc))
@@ -1246,9 +1270,16 @@ def command_doctor(args):
     if state.get('worker_config'):
         try:
             validate_worker(root,state['worker_config']); add('worker config','pass',state['worker_config'])
+            sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import model_policy
+            raw=read_json(state['worker_config'],{})
+            policies=model_policy.summary(raw,state.get('agents',[]),state.get('model_policy_preset','balanced'))
+            for host,row in policies.items():
+                detail=(f"{row.get('preset')} | {' -> '.join(row.get('order',[]))} | max {row.get('max_profile')}"
+                        if 'error' not in row else row['error'])
+                add('model policy '+host,'pass' if 'error' not in row else 'fail',detail)
             enabled=worker_auto_dispatch(state['worker_config'])
             add('worker auto-dispatch','warn' if enabled else 'pass',
-                'experimental opt-in enabled' if enabled else 'off')
+                'legacy experimental opt-in enabled' if enabled else 'off')
         except Exception as exc: add('worker config','fail',str(exc))
     guard=root/'.io-delegation-hooks/policy.json'
     if state.get('guard_mode')!='off':
@@ -1284,7 +1315,9 @@ def build_parser():
     setup.add_argument('--worker-config'); setup.add_argument('--no-worker',action='store_true')
     setup.add_argument('--router-config'); setup.add_argument('--jev',choices=['auto','on','off'],default=None)
     setup.add_argument('--orchestration',choices=['auto','on','off'],default=None,
-                       help='cheap-first Jev model orchestration; auto enables it when a worker is configured')
+                       help='Jev model orchestration; auto enables it when a worker is configured')
+    setup.add_argument('--model-preset',choices=['cost','balanced','quality'],default=None,
+                       help='host-aware model selection preset; default balanced')
     setup.add_argument('--compaction',choices=['on','off'],default=None,
                        help='automatic by default; off is a persistent per-project override')
     setup.add_argument('--typesafe-env',default='TYPESAFE_API_KEY')

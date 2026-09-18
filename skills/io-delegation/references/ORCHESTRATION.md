@@ -1,182 +1,303 @@
-# Jev compute orchestration
+# Jev host-aware model orchestration
 
-I/O Delegation can use Jev as a metadata-only compute scorer after local routing has
-already identified a task as a possible semantic delegation. The goal is lower total
-cost per validated task, not maximum worker activation.
+I/O Delegation uses Jev to estimate task requirements, then applies a local,
+user-editable model policy. Jev never receives a list of approved model IDs and never
+chooses a provider directly.
 
-## Tiers
+The optimization target is **total cost per validated task**, not principal-context
+reduction and not the number of worker calls.
 
-- **T0 — local/deterministic:** search, extract, bounded selected fragments, cache.
-  No worker model call.
-- **T1 — cheap worker:** one approved low-cost/read-only worker attempt. Its evidence
-  must pass the existing literal-evidence validator and return no unknowns.
-- **T2 — strong principal:** the current Claude/Codex/Cursor principal reasons from
-  bounded evidence. I/O Delegation does not pretend it can switch the model of an
-  already-open host session.
+## Execution model
 
-The execution path is:
-
-    local routing
+```text
+local deterministic work ------------------------------> T0
+security / architecture / debugging / editing --------> principal
+bulk factual candidate
         |
-        +-- obvious local/targeted ----------> T0
-        +-- security/debug/edit/architecture -> T2
+        v
+Jev metadata-only scores
         |
-        +-- bulk factual candidate
-                |
-                Jev compute scores
-                |
-          deterministic thresholds
-             /             \
-           T1               T2
-           |                |
-      cheap worker       principal
-           |
-      evidence validator
-        /       \
-      pass      fail/unknown
-       |            |
-      done      escalate T2
+        v
+local host-aware model policy
+        |
+        +--> minimum efficient approved profile
+        |        |
+        |        v
+        |   evidence validator
+        |      |       |
+        |     pass   valid-but-incomplete
+        |      |       |
+        |     done   next approved profile
+        |              |
+        |            bounded by max_escalations
+        |
+        +--> no profile under ceiling can satisfy demand -> principal
+```
 
-Jev does not directly choose an arbitrary provider or model. It returns bounded
-probabilities. Local code applies fixed thresholds.
+Transport/configuration failures, missing credentials, timeouts and unknown usage do
+**not** walk an expensive escalation ladder. They fall back to the principal.
 
-## Setup
+## What Jev scores
 
-When an approved worker is configured, normal setup uses orchestration mode `auto`.
-This creates a private generated scorer config under `~/.io-delegation/configs/`.
-The project stores only the config path and environment-variable name.
+The scorer sees task text plus aggregate metadata, never source bodies or file names.
+It returns probabilities for:
 
-    io-delegation setup --project . --worker-config /private/worker.json
+- `cheap_model_sufficient`
+- `risk_high`
+- `uncertainty_high`
+- `reasoning_required`
+- `parallelism_useful`
 
-Use a persistent project override when required:
+Local code converts those signals into a normalized demand. Sensitive operations are
+hard-routed to the principal before model selection.
 
-    io-delegation setup --project . --orchestration off
-    io-delegation setup --project . --orchestration on
+## Default presets
 
-`--orchestration on` requires an approved worker. `auto` is inert when there is no
-worker. A missing TypeSafe key fails closed to T2/principal; it never causes provider
-fallback or an unapproved worker call.
+`setup --model-preset` accepts:
 
-## What Jev sees
+- `cost`: lower demand threshold and strongest cost weighting.
+- `balanced`: default; combines normalized cost/capability and latency evidence.
+- `quality`: raises task demand and weights capability more heavily.
 
-Compute scoring reuses the router's metadata boundary:
+The selector considers only profiles at or below the user's effective ceiling. Among
+profiles whose declared capability covers task demand it minimizes a host-local
+objective derived from `cost_index / capability`, optional benchmark steps and the
+selected preset. A task may jump directly to a stronger model; it does not burn cheap
+attempts first when the scorer already says they are insufficient.
 
-- task/question text;
-- operation hint;
-- selected file count;
-- aggregate bytes and extension counts;
-- optional aggregate search-result / known-symbol counts.
+## Codex defaults
 
-Source contents and file names are not sent to Jev.
+The default Codex registry is based on current OpenAI model positioning and published
+API pricing as of September 2026. The numbers stored in `cost_index` are normalized
+selection weights, not a billing promise.
 
-Jev returns these scores:
+| Profile | Model | Effort | Default role |
+| --- | --- | --- | --- |
+| `luna-medium` | GPT-5.6 Luna | medium | cheap bounded factual work |
+| `luna-high` | GPT-5.6 Luna | high | cheap but reasoning-heavier factual work |
+| `terra-medium` | GPT-5.6 Terra | medium | everyday multi-file synthesis |
+| `sol-medium` | GPT-5.6 Sol | medium | difficult bounded synthesis |
+| `astra-low` | GPT-6 Astra | **low** | hardest worker task / default hard ceiling |
 
-- `cheap_model_sufficient`;
-- `risk_high`;
-- `uncertainty_high`;
-- `reasoning_required`;
-- `parallelism_useful` (recorded for future policy work; it does not spawn extra
-  workers in this version).
+**Astra low is the highest default Codex profile.** There is no Astra medium/high in
+the default registry. A user can replace the registry, but the product default never
+goes above Astra low.
 
-The generated default policy selects T1 only when all of these are true:
+Research references:
 
-- `cheap_model_sufficient >= 0.78`
-- `risk_high <= 0.30`
-- `uncertainty_high <= 0.35`
-- `reasoning_required <= 0.40`
+- OpenAI model guide: https://developers.openai.com/api/docs/models
+- OpenAI API pricing: https://developers.openai.com/api/docs/pricing
+- GPT-5.6 Luna: https://developers.openai.com/api/docs/models/gpt-5.6-luna
+- GPT-5.6 Terra: https://developers.openai.com/api/docs/models/gpt-5.6-terra
+- GPT-5.6 Sol: https://developers.openai.com/api/docs/models/gpt-5.6-sol
+- GPT-6 Astra: https://developers.openai.com/api/docs/models/gpt-6-astra
 
-Debugging, architecture, security, editing and generation are hard local T2 routes
-regardless of Jev scores.
+## Cursor defaults
 
-## Approved cheap model profile
+Cursor uses a separate registry because model/effort efficiency differs inside the
+Cursor harness. CursorBench 4.0 (September 10, 2026) reported, among other points:
 
-The worker configuration remains the authorization boundary. An optional
-`compute_profiles.cheap` block can select a cheaper model that uses the same approved
-adapter/provider.
+| Profile | CursorBench score | Reported cost/task | Steps |
+| --- | ---: | ---: | ---: |
+| Luna medium | 22.2% | $0.08 | 32 |
+| Luna high | 29.4% | $0.25 | 64 |
+| Terra medium | 27.6% | $0.64 | 25 |
+| Sol medium | 31.1% | $1.77 | 32 |
+| Sol high | 35.7% | $2.85 | 41 |
 
-Codex CLI example:
+The balanced default therefore uses:
 
-    {
-      "approved": true,
-      "adapter": "codex-cli",
-      "model": "strong-default-model",
-      "reasoning_effort": "medium",
-      "compute_profiles": {
-        "cheap": {
-          "model": "approved-cheap-model",
-          "reasoning_effort": "low"
-        }
+```text
+luna-medium -> luna-high -> sol-medium -> sol-high
+```
+
+Terra medium remains available in the registry for user policies where its lower
+reported step count matters, but it is skipped by the default balanced/cost order
+because Luna high had higher benchmark score at much lower reported task cost.
+
+GPT-6 Astra is **not** in the default Cursor registry because the current Cursor model
+documentation/benchmark used for this policy does not list an Astra result.
+
+Research references:
+
+- CursorBench 4.0: https://cursor.com/cursorbench
+- Cursor models/pricing: https://cursor.com/docs/models-and-pricing
+- Cursor Router announcement: https://cursor.com/blog/router
+- Cursor model-routing guide: https://cursor.com/guides/model-routing
+
+## Cursor native Router
+
+Cursor's native Router has its own real-traffic optimization system. I/O Delegation
+does not guess whether an account has access or invent an optimization-mode CLI
+identifier.
+
+An operator can explicitly delegate model choice to a reviewed Cursor CLI model
+string:
+
+```json
+{
+  "model_policy": {
+    "hosts": {
+      "cursor": {
+        "strategy": "native-router-first",
+        "native_router_model": "auto"
       }
     }
+  }
+}
+```
 
-Compatible Chat Completions example:
+That exact string is passed to Cursor. No direct fallback ladder is attempted after a
+Router transport failure.
 
-    {
-      "approved": true,
-      "adapter": "chat-completions",
-      "url": "https://approved.example/v1/chat/completions",
-      "allow_remote": true,
-      "api_key_env": "WORKER_API_KEY",
-      "model": "strong-default-model",
-      "compute_profiles": {
-        "cheap": {
-          "model": "approved-cheap-model",
-          "max_output_tokens": 800
-        }
+## User-editable policy
+
+The simplest control is project-scoped:
+
+```bash
+io-delegation setup --project . --model-preset cost
+io-delegation setup --project . --model-preset balanced
+io-delegation setup --project . --model-preset quality
+```
+
+For advanced control copy `assets/worker.host-cli.example.json` outside the project,
+review it, set `approved: true`, and pass it with `--worker-config`.
+
+Supported host-policy controls include:
+
+- `profiles`: fully replace the host registry.
+- `orders.cost|balanced|quality`: ordered escalation paths.
+- `min_profile` / `max_profile`: hard lower/upper limits.
+- `allowed_profiles` / `blocked_profiles`.
+- `allow_escalation`.
+- `max_escalations`.
+- Cursor-only `strategy: native-router-first` + `native_router_model`.
+
+Example lower Codex ceiling:
+
+```json
+{
+  "approved": true,
+  "adapter": "host-cli",
+  "model_policy": {
+    "preset": "balanced",
+    "hosts": {
+      "codex": {
+        "max_profile": "sol-medium",
+        "blocked_profiles": ["terra-medium"],
+        "max_escalations": 1
       }
     }
+  }
+}
+```
 
-No profile means T1 uses the already approved base worker. Opaque `command` adapters
-cannot dynamically override models; they can still serve as the T1 worker when the
-operator already considers that command the cheap worker.
+A complete custom registry is also allowed:
 
-For Codex CLI, I/O Delegation can lower the approved model/reasoning effort but does
-not claim a hard per-call output-token cap because the CLI does not expose a portable
-one. Compatible HTTP workers receive the configured output cap.
+```json
+{
+  "model_policy": {
+    "hosts": {
+      "codex": {
+        "profiles": [
+          {
+            "id": "small",
+            "model": "approved-small-model",
+            "effort": "low",
+            "capability": 0.45,
+            "cost_index": 0.1
+          },
+          {
+            "id": "max",
+            "model": "approved-max-model",
+            "effort": "medium",
+            "capability": 1.0,
+            "cost_index": 1.0
+          }
+        ],
+        "orders": {
+          "cost": ["small", "max"],
+          "balanced": ["small", "max"],
+          "quality": ["max"]
+        },
+        "max_profile": "max"
+      }
+    }
+  }
+}
+```
+
+The user-supplied model IDs are authorization/configuration. Jev never creates them.
+
+## Host CLI worker
+
+`adapter: "host-cli"` reuses the authenticated CLI belonging to the host that called
+the global MCP:
+
+- Codex -> isolated ephemeral `codex exec`, read-only sandbox.
+- Cursor -> isolated temporary workspace, Ask mode, sandbox enabled, with shell,
+  writes, web and MCP denied.
+
+The same config can therefore serve a project used from both Codex and Cursor. Optional
+`codex_executable` and `cursor_executable` override executable discovery.
+
+Existing `codex-cli`, `cursor-cli`, command and Chat Completions workers remain
+supported. The pre-v1.3 `compute_profiles.cheap` format is retained for compatibility,
+but it cannot be combined with `model_policy`.
+
+## Cursor trust boundary
+
+The Cursor CLI worker uses a temporary workspace, Ask mode, Cursor sandbox, and explicit deny rules for shell, writes, web, MCP, parent/absolute reads and `.cursor/**`. These controls reduce unintended access but are not described as an OS-level chroot: Cursor read/search capabilities remain subject to Cursor's own permission enforcement. Use the adapter only on machines/workspaces where Cursor itself is trusted.
 
 ## Validation and escalation
 
-A T1 response is accepted only when the existing semantic validator confirms:
+Every worker response still passes the existing local evidence validator:
 
-- status is `ok`;
-- at least one finding exists;
-- every quoted evidence string occurs in the selected local fragment;
-- original files are unchanged;
-- `unknowns` is empty.
+- status must be `ok`;
+- at least one finding must exist;
+- evidence must occur literally inside the selected fragment;
+- original source files must remain unchanged;
+- `unknowns` must be empty for acceptance.
 
-Anything else escalates to T2. The failed T1 usage is still counted.
+A valid response that contains evidence but still reports unknowns may escalate to the
+next approved profile. The escalation count is bounded. Transport errors and budget
+errors go directly to principal fallback.
 
-Transport errors, missing usage, missing TypeSafe credentials, invalid scorer output,
-or scorer configuration changes never trigger a different provider automatically.
-The safe fallback is the principal with bounded local evidence.
+## Accounting
 
-## Cost accounting
+Operation telemetry records:
 
-Context-operation telemetry records:
-
-- router Jev calls and reported tokens;
-- compute-orchestrator Jev calls and reported tokens;
-- T0/T1/T2 tier;
-- selected bytes;
-- worker calls and their reported usage;
-- escalations;
+- host and preset;
+- normalized task demand;
+- initial/final model profile;
+- model/effort/adapter;
+- model attempts and escalations;
+- worker reported usage;
+- Jev scorer usage;
 - cache hits.
 
-System accounting adds principal + worker + Jev control-plane tokens. If a dispatched
-component does not report usage, total accounting is marked incomplete rather than
-treating the missing usage as zero.
+System accounting remains:
 
-The metric to optimize is **total tokens/cost per validated task**, not principal
-tokens alone and not worker activation rate.
+```text
+principal + worker attempts + Jev routing/scoring
+```
 
-## Current boundary
+Unknown dispatched usage is never treated as zero.
 
-This version intentionally does not:
+`cost_index` and Cursor benchmark metadata are selection inputs, not invoices.
+Release claims must still use paired measured usage/cost from the actual configured
+provider/account.
 
-- change the model of an already-open Claude/Cursor/Codex principal session;
-- let Jev invent provider/model identifiers;
-- spawn multiple workers from the `parallelism_useful` score;
-- retry a failed cheap worker with another provider;
-- accept unverified worker summaries.
+## Current boundaries
 
-Those are separate experiments and should be enabled only after measured evidence.
+This feature does not:
+
+- switch the already-open principal model in Claude/Cursor/Codex;
+- delegate security/debugging/architecture/editing judgment away from the principal;
+- invent model IDs or providers;
+- assume Cursor native Router access;
+- treat benchmark scores as permanent truth;
+- auto-edit policy thresholds from telemetry.
+
+The registry is intentionally replaceable because model pricing and benchmark
+efficiency change over time.

@@ -7,6 +7,7 @@ import subprocess
 import io_delegate as delegate
 import context_backend as backend
 import context_orchestrator as compute
+import model_policy
 from context_cache import ResultCache
 from context_budget import BudgetError, limits, before_dispatch
 from context_selection import select, selected_job, validate_answer, grouped_question
@@ -65,18 +66,29 @@ class SemanticEngine:
             'profile': 'base-worker',
             'model': cfg.get('model'),
             'reasoning_effort': cfg.get('reasoning_effort'),
+            'adapter': cfg.get('adapter'),
             'output_token_cap_supported': cfg.get('adapter') == 'chat-completions',
         }
-        if execution.get('tier') == 'T1':
+        if isinstance(execution.get('profile'), dict):
+            transport_cfg, profile_meta = model_policy.apply_profile(
+                cfg, execution.get('host'), execution['profile'],
+                execution.get('max_output_tokens'))
+        elif execution.get('tier') == 'T1':
+            # Backward-compatible single cheap profile used by pre-v1.3 configs.
             transport_cfg, profile_meta = compute.cheap_worker_config(
                 cfg, execution.get('max_output_tokens'))
+        elif cfg.get('adapter') == 'host-cli':
+            raise ValueError('host-cli requires an explicit model-policy profile')
         sources, bundle, job = self.prepare(arguments)
         metrics = dict(route='selected-semantic', source_bytes=bundle['source_bytes'],
                        selected_bytes=bundle['selected_bytes'], request_bytes=len(encoded(job)),
                        model_calls=0, cache='miss' if self.cache.enabled else 'disabled', usage=normalize_usage(None),
                        compute_tier=execution.get('tier'), worker_profile=profile_meta['profile'],
                        worker_model=profile_meta['model'],
-                       worker_reasoning_effort=profile_meta['reasoning_effort'])
+                       worker_reasoning_effort=profile_meta['reasoning_effort'],
+                       worker_adapter=profile_meta.get('adapter'),
+                       worker_cost_index=profile_meta.get('cost_index'),
+                       worker_profile_source=profile_meta.get('source'))
         if bundle['status'] != 'ok':
             return dict(status='insufficient_context', findings=[], sources=bundle['sources'],
                         coverage=bundle['coverage'], unknowns=['At least one selection found no usable region.'],

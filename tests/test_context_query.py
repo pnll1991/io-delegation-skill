@@ -49,10 +49,11 @@ class QueryTests(unittest.TestCase):
         self.orchestrator.write_text(self.router.read_text())
         self.sel=[dict(path='a.py',select=dict(kind='lines',start=1,end=1))]
 
-    def service(self, worker=None, orchestrator=None):
+    def service(self, worker=None, orchestrator=None, host=None, model_preset=None):
         return ContextService(self.root,self.audit,files=['a.py','b.py','c.py'],
                               config=worker,router_config=self.router,
-                              orchestrator_config=orchestrator)
+                              orchestrator_config=orchestrator,host=host,
+                              model_preset=model_preset)
 
     def call(self, service, **extra):
         args=dict(selections=self.sel,question='Review this evidence',operation='factual')
@@ -171,6 +172,138 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['route'],'principal')
         self.assertEqual(result['model_calls'],0)
         self.assertEqual(result['orchestration']['initial_tier'],'T2')
+
+    def test_existing_codex_cli_without_model_policy_keeps_approved_model(self):
+        worker=self.base/'legacy-codex-worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='codex-cli',
+            model='approved-existing-model',reasoning_effort='low',timeout_seconds=5)))
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:dict(
+            status='ok',model='jev-test',tier='T1',decision='cheap_worker',
+            reason='cheap_first_policy',scores=dict(cheap_model_sufficient=.95,risk_high=.05,
+            uncertainty_high=.05,reasoning_required=.05,parallelism_useful=.1),
+            usage=dict(input_tokens=20,output_tokens=4),elapsed_ms=3)
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        seen=[]
+        def reply(job,cfg,root,record):
+            seen.append((cfg['model'],cfg.get('reasoning_effort')))
+            return worker_reply(job,cfg,root,record)
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(result['route'],'bulk_read')
+        self.assertEqual(seen,[('approved-existing-model','low')])
+        self.assertNotIn('initial_profile',result['orchestration'])
+
+    def host_worker(self, **policy):
+        worker=self.base/'host-worker.json'
+        row=dict(approved=True,adapter='host-cli',timeout_seconds=5)
+        if policy: row['model_policy']=policy
+        worker.write_text(json.dumps(row))
+        return worker
+
+    def scorer(self, **changes):
+        row=dict(status='ok',model='jev-test',
+                 scores=dict(cheap_model_sufficient=.92,risk_high=.04,
+                             uncertainty_high=.08,reasoning_required=.08,
+                             parallelism_useful=.1),
+                 usage=dict(input_tokens=31,output_tokens=7),elapsed_ms=5)
+        row.update(changes)
+        return row
+
+    def test_codex_policy_picks_luna_medium_for_easy_bulk(self):
+        worker=self.host_worker()
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:self.scorer()
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        seen=[]
+        def reply(job,cfg,root,record):
+            seen.append(dict(cfg))
+            return worker_reply(job,cfg,root,record)
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(result['route'],'bulk_read')
+        self.assertEqual(seen[0]['adapter'],'codex-cli')
+        self.assertEqual(seen[0]['model'],'gpt-5.6-luna')
+        self.assertEqual(seen[0]['reasoning_effort'],'medium')
+        self.assertEqual(result['orchestration']['initial_profile'],'luna-medium')
+
+    def test_codex_policy_can_jump_directly_to_astra_low(self):
+        worker=self.host_worker()
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        hard=self.scorer(scores=dict(cheap_model_sufficient=.02,risk_high=.70,
+                                     uncertainty_high=.80,reasoning_required=.96,
+                                     parallelism_useful=.4))
+        service.query.orchestrator.run=lambda *a,**k:hard
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        seen=[]
+        def reply(job,cfg,root,record):
+            seen.append(dict(cfg));return worker_reply(job,cfg,root,record)
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(seen[0]['model'],'gpt-6-astra')
+        self.assertEqual(seen[0]['reasoning_effort'],'low')
+        self.assertEqual(result['orchestration']['initial_profile'],'astra-low')
+
+    def test_validated_uncertainty_escalates_one_model_profile(self):
+        worker=self.host_worker()
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:self.scorer()
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        seen=[]
+        def reply(job,cfg,root,record):
+            seen.append(cfg['model']+':'+cfg.get('reasoning_effort',''))
+            raw,meta=worker_reply(job,cfg,root,record)
+            if len(seen)==1:
+                obj=json.loads(raw);obj['unknowns']=['Need stronger synthesis'];raw=json.dumps(obj)
+            return raw,meta
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(seen[:2],['gpt-5.6-luna:medium','gpt-5.6-luna:high'])
+        self.assertEqual(result['route'],'bulk_read')
+        self.assertEqual(result['orchestration']['final_profile'],'luna-high')
+        self.assertEqual(len(result['orchestration']['attempts']),2)
+        self.assertTrue(result['orchestration']['escalated'])
+
+    def test_transport_failure_does_not_walk_expensive_ladder(self):
+        worker=self.host_worker()
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:self.scorer()
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        from worker_runtime import TransportError
+        calls=[]
+        def fail(job,cfg,root,record):
+            calls.append(cfg['model'])
+            record('worker_dispatched',adapter='test',model=cfg['model'])
+            raise TransportError('timeout')
+        with patch('io_delegate.invoke',side_effect=fail):
+            result=self.call(service)
+        self.assertEqual(calls,['gpt-5.6-luna'])
+        self.assertEqual(result['route'],'principal')
+        self.assertEqual(result['reason'],'model_worker_escalation_to_principal')
+
+    def test_cursor_policy_uses_cursor_profile_and_no_astra(self):
+        worker=self.host_worker()
+        service=self.service(worker,self.orchestrator,host='cursor')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        medium=self.scorer(scores=dict(cheap_model_sufficient=.38,risk_high=.12,
+                                       uncertainty_high=.20,reasoning_required=.62,
+                                       parallelism_useful=.1))
+        service.query.orchestrator.run=lambda *a,**k:medium
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        seen=[]
+        def reply(job,cfg,root,record):
+            seen.append(dict(cfg));return worker_reply(job,cfg,root,record)
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(seen[0]['adapter'],'cursor-cli')
+        self.assertEqual(seen[0]['model'],'gpt-5.6-sol')
+        self.assertNotEqual(seen[0]['model'],'gpt-6-astra')
+        self.assertEqual(result['orchestration']['host'],'cursor')
 
     def test_real_loopback_router_call_uses_metadata_and_routes_principal(self):
         captured=[]

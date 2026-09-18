@@ -1,4 +1,4 @@
-# Context MCP / Gateway V1.2
+# Context MCP / Gateway V1.3
 
 The service prepares evidence before inference. It never edits project source, changes permissions, starts an arbitrary command from a tool argument, or chooses a provider.
 
@@ -18,13 +18,13 @@ Large minified lines must use bounded search/spans, not whole-line output. Overs
 
 ## Smart `query` tool
 
-V1 exposes `query` as the primary semantic context interface. It accepts explicit selected fragments plus a question and operation hint. It always works: without external services it applies local routing rules and returns bounded evidence. With an approved TypeSafe router config, Jev can score ambiguous route selection. Separately, when setup has an approved worker, the generated compute orchestrator can score whether a bulk factual candidate is safe for one cheap T1 attempt. Both Jev paths receive task text plus aggregate file metadata only.
+V1 exposes `query` as the primary semantic context interface. It accepts explicit selected fragments plus a question and operation hint. It always works: without external services it applies local routing rules and returns bounded evidence. With an approved TypeSafe router config, Jev can score ambiguous route selection. Separately, when setup has an approved supported CLI worker, the generated compute orchestrator scores task requirements and local `model_policy` chooses a host-specific approved profile under the user's ceiling. Both Jev paths receive task text plus aggregate file metadata only.
 
-A `principal` route returns bounded evidence for reasoning in the main agent. `targeted_read` returns selected fragments without another model. T1 results must pass literal-evidence validation and contain no unknowns; otherwise `query` escalates to T2/principal. Router errors fall back to local route rules; compute-scorer errors fail closed to T2/principal. Semantic inference remains internal to `query`; callers cannot bypass policy with a separate semantic MCP tool.
+A `principal` route returns bounded evidence for reasoning in the main agent. `targeted_read` returns selected fragments without another model. Worker results must pass literal-evidence validation and contain no unknowns. Valid-but-incomplete results may move to the next approved profile within `max_escalations`; transport/config/budget failures go directly to principal fallback. Router errors fall back to local route rules; compute-scorer errors fail closed to T2/principal. Semantic inference remains internal to `query`; callers cannot bypass policy with a separate semantic MCP tool.
 
 ## Optional semantic worker
 
-An already reviewed worker config outside the project makes the internal semantic worker available. Normal product setup defaults compute orchestration to `auto` when such a worker is present: only a bulk factual candidate can reach the Jev compute scorer, and only deterministic low-risk/sufficiency gates can authorize one T1 attempt. The older unconditional semantic path is still available for experiments and still requires `"context_auto_dispatch": true`. See [ORCHESTRATION.md](ORCHESTRATION.md).
+An already reviewed worker config outside the project makes the internal semantic worker available. Normal product setup defaults compute orchestration to `auto` and model preset `balanced` when such a worker is present. Only a bulk factual candidate can reach the Jev compute scorer; local host-aware policy chooses among approved profiles and can jump directly to a stronger model when demand requires it. The older unconditional semantic path is still available for experiments and still requires `"context_auto_dispatch": true`. See [ORCHESTRATION.md](ORCHESTRATION.md).
 
 `query` accepts explicit `selections` of `{path, select}`, plus `question` or up to four related `questions`. Selectors support lines/span, literal windows and Python symbols. Qualified Python methods retain the containing class; imports and module bindings are included. This is not whole-program dependency resolution. Other languages use explicit ranges/windows rather than a pretend AST parser.
 
@@ -32,7 +32,7 @@ The worker receives only selected fragments, with stable local references, scope
 
 ## Minimal backend vs CLI
 
-The existing `chat-completions` adapter is the minimal backend: supplied system/corpus messages and an output limit, not a nested agent. Configure it only with an endpoint/model/credentials explicitly approved by the operator. Local loopback is supported; remote destinations require HTTPS plus `allow_remote: true`. Existing `codex-cli` remains available with its normal login and read-only worker. No login tokens are copied into an API request.
+The existing `chat-completions` adapter is the minimal backend: supplied system/corpus messages and an output limit, not a nested agent. Configure it only with an endpoint/model/credentials explicitly approved by the operator. Local loopback is supported; remote destinations require HTTPS plus `allow_remote: true`. `host-cli` resolves to Codex or Cursor from the MCP host identity. `codex-cli` uses the existing normal login in an isolated read-only turn; `cursor-cli` uses an isolated temporary Ask-mode workspace with shell/write/web/MCP denied. No login tokens are copied between products or into an API request.
 
 Run `benchmarks/context/microbench.py --help` for a single-operation comparison across reviewed configurations. Without `--live` it makes ZERO model calls. Explicit request bytes and selected source bytes are diagnostics, not token estimates. Do not replace Codex base instructions or disable the sandbox to lower an apparent token count.
 

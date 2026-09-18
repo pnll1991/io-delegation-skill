@@ -206,6 +206,57 @@ class GatewayCLITests(unittest.TestCase):
         self.assertTrue(status['compute_orchestration'])
         self.assertIn('TYPESAFE_API_KEY',status['credential_envs'])
 
+    def test_model_preset_defaults_balanced_and_persists(self):
+        worker=self.base/'host-policy-worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='host-cli',timeout_seconds=5)))
+        code,text,err=self.setup_codex('--worker-config',str(worker))
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['model_policy_preset'],'balanced')
+        config=(self.host/'.codex/config.toml').read_text(encoding='utf-8')
+        self.assertIn('--host',config);self.assertIn('codex',config)
+        status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
+        self.assertEqual(status['model_policy_preset'],'balanced')
+        self.assertEqual(status['model_policy']['codex']['max_profile'],'astra-low')
+        self.assertEqual(status['model_policy']['codex']['order'][-1],'astra-low')
+
+        code,text,err=self.setup_codex('--model-preset','cost')
+        self.assertEqual(code,0,err)
+        self.assertEqual(gateway.load_state(self.project)['model_policy_preset'],'cost')
+        code,text,err=self.setup_codex()
+        self.assertEqual(code,0,err)
+        self.assertEqual(gateway.load_state(self.project)['model_policy_preset'],'cost')
+
+    def test_cursor_status_policy_has_no_astra_by_default(self):
+        worker=self.base/'host-policy-cursor.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='host-cli',timeout_seconds=5)))
+        code,text,err=self.cli('setup','--project',str(self.project),'--agent','cursor','--jev','off',
+                               '--worker-config',str(worker),'--no-doctor')
+        self.assertEqual(code,0,err)
+        status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
+        row=status['model_policy']['cursor']
+        self.assertEqual(row['max_profile'],'sol-high')
+        self.assertNotIn('astra-low',row['order'])
+
+    def test_user_model_policy_override_is_visible_in_status_and_doctor(self):
+        worker=self.base/'custom-policy.json'
+        worker.write_text(json.dumps(dict(
+            approved=True,adapter='host-cli',timeout_seconds=5,
+            model_policy={'hosts':{'codex':{
+                'max_profile':'sol-medium',
+                'blocked_profiles':['terra-medium']
+            }}}
+        )))
+        code,text,err=self.setup_codex('--worker-config',str(worker),'--model-preset','balanced')
+        self.assertEqual(code,0,err)
+        status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
+        self.assertEqual(status['model_policy']['codex']['order'],
+                         ['luna-medium','luna-high','sol-medium'])
+        code,text,err=self.cli('doctor','--project',str(self.project))
+        self.assertEqual(code,0,err)
+        self.assertIn('model policy codex',text)
+        self.assertIn('max sol-medium',text)
+
     def test_orchestration_off_is_persistent_escape_hatch(self):
         worker=self.base/'cheap-worker-off.json'
         worker.write_text(json.dumps(dict(approved=True,adapter='command',
@@ -281,7 +332,7 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(code,0,err)
         self.assertIn('Jev compute orchestration',text)
         self.assertIn('Jev compute key',text)
-        self.assertIn('cheap-first worker',text)
+        self.assertIn('model worker',text)
 
     def test_worker_status_distinguishes_configured_from_auto_dispatch(self):
         worker=self.base/'worker.json'
@@ -316,8 +367,9 @@ class GatewayCLITests(unittest.TestCase):
         self.assertFalse((self.project/'.cursor/mcp.json').exists())
         row=gateway.read_json(self.host/'.cursor/mcp.json')
         entry=row['mcpServers']['io_context']
-        self.assertEqual(len(entry['args']),1)
+        self.assertEqual(len(entry['args']),3)
         self.assertTrue(str(entry['args'][0]).endswith('context_bootstrap.py'))
+        self.assertEqual(entry['args'][1:],['--host','cursor'])
         self.assertNotIn('${workspaceFolder}',json.dumps(entry))
 
     def test_secret_value_is_never_persisted(self):
@@ -452,6 +504,7 @@ class GatewayCLITests(unittest.TestCase):
         definition=json.loads(argv[4])
         self.assertEqual(definition['type'],'stdio')
         self.assertTrue(definition['args'][0].endswith('context_bootstrap.py'))
+        self.assertEqual(definition['args'][1:],['--host','claude-code'])
 
 
 

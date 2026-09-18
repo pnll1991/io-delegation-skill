@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired A/B evaluator for Jev cheap-first compute orchestration.
+"""Paired A/B evaluator for Jev host-aware model orchestration.
 
 Input is measured run metadata only. It does not execute models. Each pair compares
 the same task on the same commit with orchestration disabled vs enabled.
@@ -83,6 +83,14 @@ def validate(data):
         escalated = item.get("escalated", False)
         if type(escalated) is not bool:
             raise EvidenceError("escalated must be boolean")
+        initial_profile = item.get("initial_profile")
+        final_profile = item.get("final_profile")
+        for name,value in (("initial_profile",initial_profile),("final_profile",final_profile)):
+            if value is not None and (not isinstance(value,str) or not value):
+                raise EvidenceError(f"{name} must be null or a non-empty string")
+        attempts = item.get("model_attempts", 0)
+        if type(attempts) is not int or attempts < 0:
+            raise EvidenceError("model_attempts must be a non-negative integer")
         out.append({
             "id": pid,
             "family": item.get("family") if isinstance(item.get("family"), str) else "unknown",
@@ -90,6 +98,9 @@ def validate(data):
             "orchestrated": orchestrated,
             "tier": tier,
             "escalated": escalated,
+            "initial_profile": initial_profile,
+            "final_profile": final_profile,
+            "model_attempts": attempts,
         })
     return out
 
@@ -134,6 +145,12 @@ def evaluate(data):
     ]
     tiers = {tier: sum(p["tier"] == tier for p in pairs) for tier in ("T0", "T1", "T2")}
     escalations = sum(p["escalated"] for p in pairs)
+    profile_counts = {}
+    for p in pairs:
+        profile = p.get("final_profile")
+        if profile:
+            profile_counts[profile] = profile_counts.get(profile, 0) + 1
+    model_attempts = sum(p.get("model_attempts", 0) for p in pairs)
     t1 = [p for p in pairs if p["tier"] == "T1"]
     release_ready = (
         len(comparable) >= MIN_RELEASE_PAIRS
@@ -153,6 +170,8 @@ def evaluate(data):
         "tiers": tiers,
         "escalations": escalations,
         "escalation_rate": escalations / len(pairs),
+        "final_profiles": profile_counts,
+        "model_attempts": model_attempts,
         "t1_rate": len(t1) / len(pairs),
         "median_system_token_delta": statistics.median(token_deltas) if token_deltas else None,
         "median_wall_delta": statistics.median(wall_deltas) if wall_deltas else None,
