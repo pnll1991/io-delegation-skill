@@ -103,9 +103,13 @@ def activation_gate(value):
     unexpected=value.get('unexpected_call_run_ids',[]) if isinstance(value,dict) else []
     context_leaks=value.get('context_leak_run_ids',[]) if isinstance(value,dict) else []
     schema=value.get('schema') if isinstance(value,dict) else None
-    passed=(schema=='io-context-activation-evidence/v1' and value.get('pass') is True)
+    isolation=value.get('isolation_contract') if isinstance(value,dict) else None
+    isolated=(isinstance(isolation,dict) and isolation.get('version')=='codex-isolated-v2'
+              and isolation.get('verified') is True)
+    passed=(schema=='io-context-activation-evidence/v1' and value.get('pass') is True and isolated)
     return {
         'pass':passed,'schema':schema,'pairs':value.get('pairs') if isinstance(value,dict) else None,
+        'isolation_verified':isolated,
         'false_enables':len(false_enables) if isinstance(false_enables,list) else None,
         'unexpected_calls':len(unexpected) if isinstance(unexpected,list) else None,
         'context_leaks':len(context_leaks) if isinstance(context_leaks,list) else None,
