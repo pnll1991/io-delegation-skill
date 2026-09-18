@@ -495,7 +495,7 @@ def toml_value(value):
 def codex_block(states):
     command, bootstrap = runtime_command(); envs=union_env_names(states)
     rows=[CODEX_BEGIN,'[mcp_servers.io_context]',f'command = {toml_value(command)}',
-          f'args = {toml_value([bootstrap])}','enabled = true','required = false',
+          f'args = {toml_value([bootstrap,"--host","codex"])}','enabled = true','required = false',
           'startup_timeout_sec = 20','tool_timeout_sec = 185',
           f'enabled_tools = {toml_value(["search","extract","query"])}']
     if envs: rows.append(f'env_vars = {toml_value(envs)}')
@@ -524,7 +524,7 @@ def update_codex_global(states, dry_run=False):
 
 def cursor_entry(states):
     command, bootstrap=runtime_command(); envs=union_env_names(states)
-    entry={'type':'stdio','command':command,'args':[bootstrap]}
+    entry={'type':'stdio','command':command,'args':[bootstrap,'--host','cursor']}
     if envs: entry['env']={name:f'${{env:{name}}}' for name in envs}
     return entry
 
@@ -582,7 +582,7 @@ def update_claude_user(states, dry_run=False, replace=False):
     if not need:
         return 'claude:user','removed' if owned else 'unchanged'
     command,bootstrap=runtime_command()
-    definition=json.dumps({'type':'stdio','command':command,'args':[bootstrap]},separators=(',',':'))
+    definition=json.dumps({'type':'stdio','command':command,'args':[bootstrap,'--host','claude-code']},separators=(',',':'))
     cp=subprocess.run([exe,'mcp','add-json',SERVER_NAME,definition,'--scope','user'],
                       capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=30)
     if cp.returncode:
@@ -784,7 +784,9 @@ def setup_choices(root,args,existing):
         router_mode=args.jev or DEFAULT_JEV_SETUP_MODE; router_source=None
     compaction=compaction_setup_mode(args,existing)
     orchestration=orchestration_setup_mode(args,existing)
-    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction,orchestration
+    model_preset=(args.model_preset if args.model_preset is not None else
+                  existing.get('model_policy_preset','balanced') if existing else 'balanced')
+    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction,orchestration,model_preset
 
 
 def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=False):
@@ -794,6 +796,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
           'compute_orchestration':bool(state.get('orchestrator_config')),
           'orchestration_preference':state.get('orchestration_preference','auto'),
+          'model_policy_preset':state.get('model_policy_preset','balanced'),
           'jev_compaction':state.get('compaction_mode')=='on',
           'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
           'worker_auto_dispatch':dispatch,
@@ -805,7 +808,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
-    print('Compute orchestration: '+('cheap-first' if state.get('orchestrator_config') else 'off'))
+    print('Compute orchestration: '+('host-aware / '+state.get('model_policy_preset','balanced') if state.get('orchestrator_config') else 'off'))
     print('Compaction: '+('automatic (project-scoped: '+', '.join(state.get('compaction_hosts',[]))+')' if state.get('compaction_mode')=='on' else 'off'))
     if state.get('worker_config'):
         print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
@@ -820,7 +823,7 @@ def command_setup(args):
     root=Path(args.project).expanduser().resolve(strict=True)
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
-    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction,orchestration=setup_choices(root,args,existing)
+    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction,orchestration,model_preset=setup_choices(root,args,existing)
     old_compaction_hosts=configured_compaction_hosts(existing)
 
     # Phase 1: resolve and validate the complete plan without writing anything.
@@ -853,6 +856,7 @@ def command_setup(args):
            'orchestrator_config':str(orchestrator_plan) if orchestrator_plan else None,
            'orchestrator_generated':bool(orchestrator_generated),
            'orchestration_preference':orchestration,
+           'model_policy_preset':model_preset,
            'credential_env_names':credentials,
            'compaction_mode':compaction,
            'compaction_preference':compaction,
@@ -961,7 +965,7 @@ def command_setup(args):
     print('Agents: '+', '.join(agents))
     print(f'Context scope: {len(prefixes)} folders + {len(files)} root files')
     print('Smart routing: '+('TypeSafe Jev' if router else 'local rules'))
-    print('Compute orchestration: '+('Jev cheap-first' if orchestrator else 'off'))
+    print('Compute orchestration: '+(('Jev host-aware ('+model_preset+')') if orchestrator else 'off'))
     print('Jev compaction: '+('automatic for '+', '.join(agents) if compaction=='on' else 'off'))
     print('Semantic worker: '+('configured' if worker else 'off'))
     print('Read guard: '+guard)
@@ -1284,7 +1288,9 @@ def build_parser():
     setup.add_argument('--worker-config'); setup.add_argument('--no-worker',action='store_true')
     setup.add_argument('--router-config'); setup.add_argument('--jev',choices=['auto','on','off'],default=None)
     setup.add_argument('--orchestration',choices=['auto','on','off'],default=None,
-                       help='cheap-first Jev model orchestration; auto enables it when a worker is configured')
+                       help='Jev model orchestration; auto enables it when a worker is configured')
+    setup.add_argument('--model-preset',choices=['cost','balanced','quality'],default=None,
+                       help='host-aware model selection preset; default balanced')
     setup.add_argument('--compaction',choices=['on','off'],default=None,
                        help='automatic by default; off is a persistent per-project override')
     setup.add_argument('--typesafe-env',default='TYPESAFE_API_KEY')
