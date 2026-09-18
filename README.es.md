@@ -169,45 +169,41 @@ python benchmarks/run.py --output benchmark-output
 Ejecutar en main actual cuenta la skill actual. Para reproducir las cifras históricas, usá el `executed_commit` del informe, como explica la guía. El piloto de modelos se ejecuta manualmente; el conteo liviano corre ante cambios relevantes. Sus dependencias no son necesarias para instalar ni usar la skill.
 
 
-## Orquestación cheap-first de modelos con Jev
+## Orquestación host-aware de modelos con Jev
 
-Con un worker aprobado, I/O Delegation puede optimizar el **costo total por tarea validada** en vez de enviar toda lectura semántica al modelo más fuerte. Las reglas locales asignan primero el trabajo obvio a T0 o T2; Jev se consulta sólo cuando hay un candidato factual/bulk.
+Con un worker CLI aprobado, Jev puntúa los requisitos de la tarea y una **política local y editable** elige el modelo. El preset por defecto es `balanced`; el usuario puede usar `cost` o `quality` sin editar JSON.
 
 ```text
-T0 local/determinístico
-        |
-candidato bulk -> scores Jev -> T1 worker barato -> validator -> listo
-                               |                     |
-                               |                     +-> falla/unknown -> T2 principal
-                               +-> riesgo/duda ------> T2 principal
+candidato factual/bulk
+        ↓
+scores de Jev
+        ↓
+política local
+   ┌────┴──────────────────────────────┐
+Codex                                 Cursor
+Luna medium                           Luna medium
+Luna high                             Luna high
+Terra medium                          Sol medium
+Sol medium                            Sol high
+Astra low  ← techo default
 ```
 
-Los gates por defecto son conservadores: suficiencia del modelo barato debe ser al menos 0,78 y los scores de riesgo alto, incertidumbre y razonamiento requerido deben quedar debajo de sus límites. Debugging, arquitectura, seguridad, edición y generación van siempre a T2. Jev nunca inventa un provider o modelo.
+El selector no empieza ciegamente por el modelo más barato. Calcula demanda normalizada, conserva sólo perfiles suficientes y debajo del ceiling del usuario, y minimiza un objetivo costo/capacidad según el preset. Una tarea difícil puede arrancar directamente en Sol o Astra. Una respuesta válida pero incompleta puede subir al próximo perfil aprobado; timeout, error de transporte o usage desconocido vuelven directamente al principal.
 
-Un bloque opcional `compute_profiles.cheap` dentro de la configuración de worker ya aprobada puede elegir un modelo/effort más barato para Codex CLI o un modelo/cap de output más barato en Chat Completions compatible. Sin perfil, T1 usa el worker base aprobado.
-
-```json
-{
-  "approved": true,
-  "adapter": "codex-cli",
-  "model": "strong-default-model",
-  "reasoning_effort": "medium",
-  "compute_profiles": {
-    "cheap": {
-      "model": "approved-cheap-model",
-      "reasoning_effort": "low"
-    }
-  }
-}
-```
+Los defaults cambian por host. Codex usa posicionamiento/precios actuales de OpenAI y tiene **Astra low** como techo. Cursor usa datos de eficiencia de CursorBench 4.0; el ladder balanced omite Terra porque Luna-high mostró mejor score a mucho menor costo reportado por tarea. Astra no forma parte del registry default de Cursor porque la documentación/benchmark actual usada por esta política no lo lista.
 
 ```bash
-io-delegation setup --project . --worker-config /ruta/privada/worker.json
-io-delegation setup --project . --orchestration off
-io-delegation setup --project . --orchestration on
+io-delegation setup --project . \
+  --worker-config /ruta/privada/worker.host-cli.json \
+  --model-preset balanced
+
+io-delegation setup --project . --model-preset cost
+io-delegation setup --project . --model-preset quality
 ```
 
-La telemetría registra T0/T1/T2, escalaciones, uso del worker y uso de Jev para routing/orchestration. El accounting del sistema incluye esos tokens de control; usage no reportado deja el total incompleto en vez de asumir costo cero. Ver [orquestación de compute con Jev](skills/io-delegation/references/ORCHESTRATION.md).
+El usuario avanzado puede reemplazar registry/orden, cambiar ceilings, bloquear perfiles, limitar escalaciones y optar explícitamente por el Router nativo de Cursor con un model string revisado. Usá `skills/io-delegation/assets/worker.host-cli.example.json` como base. Jev nunca inventa IDs de modelos.
+
+La telemetría registra host, demanda, perfil/modelo/effort, intentos, escalaciones y usage reportado de worker/Jev. Usage desconocido sigue siendo desconocido. Ver [orquestación host-aware](skills/io-delegation/references/ORCHESTRATION.md).
 
 ## Compactación automática de contexto guiada por Jev
 
