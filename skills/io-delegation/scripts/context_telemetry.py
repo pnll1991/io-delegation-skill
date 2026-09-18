@@ -109,7 +109,7 @@ def operations(path):
             if iid in done and e!=done[iid]:invalid+=1
             done[iid]=e
         else:invalid+=1
-    counts={};tiers={};cache_hits=source=selected=returned=dispatch=orchestrator_calls=escalations=0
+    counts={};tiers={};profiles={};cache_hits=source=selected=returned=dispatch=orchestrator_calls=escalations=0
     control_tokens=0;control_usage_complete=True
     for e in done.values():
         key=e.get('operation');counts[key]=counts.get(key,0)+1
@@ -120,7 +120,16 @@ def operations(path):
         returned+=e.get('result_bytes',0);dispatch+=e.get('model_calls',0)
         orchestrator_calls+=e.get('orchestrator_calls',0)
         if 'escalated' in e and type(e['escalated']) is not bool:invalid+=1
-        escalations+=e.get('escalated') is True
+        model_escalations=e.get('model_escalations')
+        if model_escalations is not None:
+            if type(model_escalations) is not int or model_escalations<0:invalid+=1
+            else:escalations+=model_escalations
+        else:
+            escalations+=e.get('escalated') is True
+        profile=e.get('final_model_profile')
+        if profile is not None:
+            if not isinstance(profile,str) or not profile:invalid+=1
+            else:profiles[profile]=profiles.get(profile,0)+1
         tier=e.get('compute_tier')
         if tier is not None:
             if tier not in ('T0','T1','T2'):invalid+=1
@@ -136,6 +145,7 @@ def operations(path):
     return dict(counts=counts,completed=len(done),cache_hits=cache_hits,source_bytes=source,
                 selected_bytes=selected,result_bytes=returned,model_calls=dispatch,
                 orchestrator_calls=orchestrator_calls,escalations=escalations,compute_tiers=tiers,
+                model_profiles=profiles,
                 control_tokens=control_tokens if control_usage_complete else None,
                 control_usage_complete=control_usage_complete,
                 complete=not invalid and started==set(done),invalid_records=invalid,
