@@ -1,8 +1,8 @@
-"""Smart context routing for the public `query` MCP tool.
+"""Smart context routing and cheap-first compute orchestration for public query.
 
-The router sees task text plus aggregate metadata, never source contents or names.
-Selected source fragments stay local unless an approved semantic worker is explicitly
-opted into experimental auto-dispatch.
+Routing and compute scoring see task text plus aggregate metadata, never source
+contents or names. Selected source fragments stay local unless an approved worker
+is dispatched.
 """
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 
 import decision_router as jev
+import context_orchestrator as compute
 from context_selection import MAX_SELECTED_BYTES, grouped_question, select
 from context_sources import exact_keys, source_table
 from context_engine import SemanticEngine
@@ -83,9 +84,7 @@ def _prepare(scope, arguments):
 
 
 def _heuristic(operation, paths, source_bytes, worker_available):
-    if operation in {'debugging', 'architecture', 'security', 'editing'}:
-        return 'principal'
-    if operation == 'generation':
+    if operation in {'debugging', 'architecture', 'security', 'editing', 'generation'}:
         return 'principal'
     if len(paths) >= 3 and worker_available and source_bytes >= 2048:
         return 'bulk_read'
@@ -113,8 +112,18 @@ def _evidence(bundle, route, *, recommended=None, reason=None):
     return result
 
 
+def _semantic_args(arguments, selections):
+    row = {'selections': selections}
+    if 'question' in arguments:
+        row['question'] = arguments['question']
+    else:
+        row['questions'] = arguments['questions']
+    return row
+
+
 class QueryEngine:
-    def __init__(self, scope, audit, worker_config=None, router_config=None, cache=True):
+    def __init__(self, scope, audit, worker_config=None, router_config=None,
+                 orchestrator_config=None, cache=True):
         self.scope = scope
         self.semantic = (SemanticEngine(scope, audit, worker_config, cache=cache)
                          if worker_config is not None else None)
@@ -124,6 +133,14 @@ class QueryEngine:
             ) is True
         )
         self.router = JevRouter(scope.root, router_config) if router_config is not None else None
+        self.orchestrator = (
+            compute.JevComputeOrchestrator(scope.root, orchestrator_config)
+            if orchestrator_config is not None else None
+        )
+
+    def _principal_bundle(self, sources, selections, direct_limit, reason, recommended='principal'):
+        bundle = select(sources, selections, max_bytes=direct_limit)
+        return bundle, _evidence(bundle, 'principal', recommended=recommended, reason=reason)
 
     def run(self, arguments):
         worker_limit = self.semantic.limits['max_selected_bytes'] if self.semantic else MAX_SELECTED_BYTES
@@ -135,10 +152,15 @@ class QueryEngine:
             'selected_bytes': 0, 'model_calls': 0,
             'router_calls': 0, 'router_route': None, 'router_confidence': None,
             'router_input_tokens': None, 'router_output_tokens': None,
-            'router_elapsed_ms': None, 'cache': 'disabled'
+            'router_elapsed_ms': None,
+            'orchestrator_calls': 0, 'compute_tier': None, 'compute_decision': None,
+            'orchestrator_input_tokens': None, 'orchestrator_output_tokens': None,
+            'orchestrator_elapsed_ms': None, 'escalated': False,
+            'cache': 'disabled'
         }
         route = None
         router_result = None
+        compute_result = None
         if self.router:
             try:
                 router_result = self.router.run(
@@ -155,23 +177,76 @@ class QueryEngine:
                 metrics['router_calls'] = 1
                 metrics['router_route'] = 'error'
 
+        orchestrated_worker = bool(self.semantic and self.orchestrator)
         if route in (None, 'current_rules'):
-            route = _heuristic(operation, paths, source_bytes, self.worker_auto_dispatch)
+            route = _heuristic(
+                operation, paths, source_bytes,
+                self.worker_auto_dispatch or orchestrated_worker)
         metrics['route'] = route
 
-        if route == 'bulk_read' and self.semantic and self.worker_auto_dispatch:
-            semantic_args = {'selections': selections}
-            if 'question' in arguments:
-                semantic_args['question'] = arguments['question']
+        if route == 'bulk_read' and orchestrated_worker:
+            try:
+                compute_result = self.orchestrator.run(
+                    question, paths, operation=operation,
+                    search_results=arguments.get('search_results'),
+                    known_symbols=arguments.get('known_symbols'))
+                metrics.update(
+                    orchestrator_calls=1,
+                    compute_tier=compute_result['tier'],
+                    compute_decision=compute_result['decision'],
+                    orchestrator_input_tokens=compute_result['usage']['input_tokens'],
+                    orchestrator_output_tokens=compute_result['usage']['output_tokens'],
+                    orchestrator_elapsed_ms=compute_result['elapsed_ms'])
+            except (OSError, ValueError, jev.RouterError, compute.OrchestratorError):
+                metrics.update(orchestrator_calls=1, compute_tier='T2',
+                               compute_decision='error')
+
+            if compute_result and compute_result['decision'] == 'cheap_worker':
+                execution = {
+                    'tier': 'T1',
+                    'max_output_tokens': self.orchestrator.cfg['compute_policy']['max_cheap_output_tokens'],
+                }
+                worker_result, semantic_metrics = self.semantic.run(
+                    _semantic_args(arguments, selections), execution=execution)
+                metrics.update({k: v for k, v in semantic_metrics.items()
+                                if k not in {'route', 'source_bytes', 'compute_tier'}})
+                metrics['model_calls'] = semantic_metrics.get('model_calls', 0)
+                metrics['compute_tier'] = 'T1'
+                if compute.accepted_worker_result(worker_result):
+                    result = worker_result
+                    result['route'] = 'bulk_read'
+                    result['recommended_route'] = 'bulk_read'
+                else:
+                    bundle, result = self._principal_bundle(
+                        sources, selections, direct_limit,
+                        'cheap_worker_escalation', recommended='principal')
+                    metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                                   compute_tier='T2', compute_decision='escalated',
+                                   escalated=True)
+                    result['model_calls'] = semantic_metrics.get('model_calls', 0)
+                    result['worker_attempt'] = {
+                        'status': worker_result.get('status', 'error'),
+                        'accepted': False,
+                    }
             else:
-                semantic_args['questions'] = arguments['questions']
-            result, semantic_metrics = self.semantic.run(semantic_args)
+                reason = ('orchestrator_error'
+                          if metrics['compute_decision'] == 'error'
+                          else 'compute_gate_rejected')
+                bundle, result = self._principal_bundle(
+                    sources, selections, direct_limit, reason, recommended='principal')
+                metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                               compute_tier='T2')
+
+        elif route == 'bulk_read' and self.semantic and self.worker_auto_dispatch:
+            result, semantic_metrics = self.semantic.run(_semantic_args(arguments, selections))
             metrics.update({k: v for k, v in semantic_metrics.items()
                             if k not in {'route', 'source_bytes'}})
             metrics['model_calls'] = semantic_metrics.get('model_calls', 0)
             result['route'] = 'bulk_read'
             result['recommended_route'] = 'bulk_read'
+
         elif route == 'deterministic':
+            metrics['compute_tier'] = 'T0'
             result = {
                 'status': 'ok', 'route': 'deterministic',
                 'recommended_route': 'deterministic',
@@ -180,6 +255,7 @@ class QueryEngine:
                 'coverage': {'scope': 'route-only'},
                 'selected_bytes': 0, 'model_calls': 0,
             }
+
         else:
             bundle = select(sources, selections, max_bytes=direct_limit)
             metrics['selected_bytes'] = bundle['selected_bytes']
@@ -190,6 +266,8 @@ class QueryEngine:
                 metrics['route'] = 'targeted_read'
             else:
                 result = _evidence(bundle, route)
+                metrics['compute_tier'] = 'T2' if route == 'principal' else 'T0'
+
         self.scope.unchanged(sources)
 
         if router_result:
@@ -203,4 +281,25 @@ class QueryEngine:
             }
         elif self.router and metrics['router_route'] == 'error':
             result['router'] = {'status': 'error', 'fallback': 'local_rules'}
+
+        if compute_result:
+            result['orchestration'] = {
+                'tier': metrics['compute_tier'],
+                'initial_tier': compute_result['tier'],
+                'decision': metrics['compute_decision'],
+                'reason': compute_result['reason'],
+                'scores': compute_result['scores'],
+                'model': compute_result['model'],
+                'usage': compute_result['usage'],
+                'escalated': metrics['escalated'],
+            }
+            if metrics.get('worker_profile'):
+                result['orchestration']['worker_profile'] = metrics['worker_profile']
+                result['orchestration']['worker_model'] = metrics.get('worker_model')
+        elif self.orchestrator and metrics['compute_decision'] == 'error':
+            result['orchestration'] = {
+                'tier': 'T2', 'decision': 'principal',
+                'reason': 'orchestrator_error', 'escalated': False,
+                'fallback': 'principal',
+            }
         return result, metrics
