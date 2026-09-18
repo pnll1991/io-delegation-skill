@@ -9,6 +9,36 @@ HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
 import paired, record
 
+ISOLATION_VERSION='codex-isolated-v2'
+REQUIRED_COMMAND_ITEMS=(
+    '--ephemeral','--ignore-user-config','--skip-git-repo-check','apps','plugins',
+    'approval_policy="never"','web_search="disabled"','features.shell_tool=true',
+    'features.unified_exec=false','features.multi_agent=false','features.memories=false',
+    'features.skill_mcp_dependency_install=false','sandbox_workspace_write.network_access=false',
+)
+
+
+def verify_isolation(rows,run_root):
+    root=Path(run_root).resolve(strict=True)
+    failures=[]; checked=0
+    for row in rows:
+        path=root/'runs'/row['run_id']/'command.json'
+        try:
+            command=json.loads(path.read_text(encoding='utf-8-sig'))
+        except (OSError,ValueError,UnicodeError):
+            failures.append({'run_id':row['run_id'],'reason':'missing_or_invalid_command'}); continue
+        if not isinstance(command,list) or not all(isinstance(item,str) for item in command):
+            failures.append({'run_id':row['run_id'],'reason':'invalid_command_shape'}); continue
+        text=' '.join(command)
+        missing=[item for item in REQUIRED_COMMAND_ITEMS if item not in command and item not in text]
+        if row.get('arm')=='gate-auto' and 'mcp_servers.io_context.command=' not in text:
+            missing.append('inactive_gateway_registration')
+        if missing:
+            failures.append({'run_id':row['run_id'],'reason':'missing_isolation_items','items':missing}); continue
+        checked+=1
+    return {'version':ISOLATION_VERSION,'verified':checked==len(rows) and not failures,
+            'checked_runs':checked,'expected_runs':len(rows),'failures':failures}
+
 def _get(row,*path):
     cur=row
     for key in path:
@@ -26,7 +56,7 @@ def _median(values):
     return statistics.median(vals) if vals else None
 
 def evaluate(rows,left='gate-always',right='gate-auto',required_pairs=15,min_valid_pairs=12,
-             max_token_overhead_pct=5.0,max_wall_overhead_pct=10.0):
+             max_token_overhead_pct=5.0,max_wall_overhead_pct=10.0,isolation=None):
     pairs,incomplete=paired.pair_rows(rows,left,right)
     valid=[]; token_pct=[]; wall_pct=[]
     always_success=auto_success=0
@@ -57,6 +87,8 @@ def evaluate(rows,left='gate-always',right='gate-auto',required_pairs=15,min_val
         'principal_token_overhead': token_median is not None and token_median<=max_token_overhead_pct,
         'wall_time_overhead': wall_median is not None and wall_median<=max_wall_overhead_pct,
     }
+    if isolation is not None:
+        gates['runner_isolation']=isolation.get('verified') is True
     return {
         'schema':'io-context-activation-evidence/v1',
         'left_arm':left,'right_arm':right,
@@ -73,6 +105,7 @@ def evaluate(rows,left='gate-always',right='gate-auto',required_pairs=15,min_val
             'max_token_overhead_pct':max_token_overhead_pct,
             'max_wall_overhead_pct':max_wall_overhead_pct,
         },
+        'isolation_contract':isolation,
         'gates':gates,'pass':all(gates.values()),
     }
 
@@ -83,12 +116,14 @@ def main(argv=None):
     p.add_argument('--required-pairs',type=int,default=15); p.add_argument('--min-valid-pairs',type=int,default=12)
     p.add_argument('--max-token-overhead-pct',type=float,default=5.0)
     p.add_argument('--max-wall-overhead-pct',type=float,default=10.0)
+    p.add_argument('--run-root',type=Path,required=True)
     p.add_argument('--output',type=Path)
     a=p.parse_args(argv)
     if a.required_pairs<1 or a.min_valid_pairs<1: p.error('pair thresholds must be positive')
     rows=record.load(a.records)
+    isolation=verify_isolation(rows,a.run_root)
     result=evaluate(rows,a.left,a.right,a.required_pairs,a.min_valid_pairs,
-                    a.max_token_overhead_pct,a.max_wall_overhead_pct)
+                    a.max_token_overhead_pct,a.max_wall_overhead_pct,isolation)
     text=json.dumps(result,ensure_ascii=False,indent=2,allow_nan=False)+'\n'
     if a.output:
         a.output.parent.mkdir(parents=True,exist_ok=True); a.output.write_text(text,encoding='utf-8')
