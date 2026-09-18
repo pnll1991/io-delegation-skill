@@ -46,8 +46,8 @@ def atomic_write(path, data):
 
 
 def invocation(python, runtime_script, host):
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", python):
-        raise ValueError("--python must be a single executable name")
+    if not isinstance(python,str) or not python or any(c in python for c in '\r\n'):
+        raise ValueError("--python must identify one executable")
     argv = [python, str(runtime_script), "--host", host]
     if os.name == "nt":
         if any(any(c in arg for c in '%!\r\n"') for arg in argv):
@@ -158,8 +158,9 @@ def main(argv=None):
             if not args.remove:
                 if not runtime_script.is_file():
                     raise ValueError("Compaction runtime is missing")
-                if not shutil.which(args.python):
-                    raise ValueError("Python launcher not found; use --python python3 where appropriate")
+                python_path=Path(args.python).expanduser()
+                if not (python_path.is_file() or shutil.which(args.python)):
+                    raise ValueError("Python launcher not found")
                 check = subprocess.run(
                     [args.python, str(runtime_script), "--host", args.agent, "--self-test"],
                     capture_output=True, text=True, encoding="utf-8", timeout=8
