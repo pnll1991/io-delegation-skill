@@ -1,9 +1,13 @@
 from __future__ import annotations
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skills/io-delegation/scripts'))
 import context_orchestrator as compute
@@ -68,6 +72,39 @@ class ComputeOrchestratorTests(unittest.TestCase):
         self.assertEqual(derived['model'],'cheap')
         self.assertEqual(derived['reader_max_tokens'],900)
         self.assertTrue(meta['output_token_cap_supported'])
+
+    def test_real_loopback_request_sends_metadata_not_source(self):
+        project=self.root/'project';project.mkdir()
+        names=['alpha.py','beta.py','gamma.py']
+        for i,name in enumerate(names):
+            (project/name).write_text(f'SECRET_SOURCE_{i}=123\n'+'x'*900,encoding='utf-8')
+        captured=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args): pass
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                captured.append(body)
+                raw=json.dumps(response()).encode()
+                self.send_response(200)
+                self.send_header('Content-Length',str(len(raw)))
+                self.end_headers();self.wfile.write(raw)
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        try:
+            row=json.loads(self.cfg.read_text())
+            row['url']=f'http://127.0.0.1:{server.server_port}/v1/systemone'
+            self.cfg.write_text(json.dumps(row))
+            scorer=compute.JevComputeOrchestrator(project,self.cfg)
+            with patch.dict(os.environ,{'TYPESAFE_API_KEY':'fixture-secret'},clear=False):
+                result=scorer.run('Compare configured values',names,operation='factual')
+            self.assertEqual(result['tier'],'T1')
+            wire=json.dumps(captured[0])
+            for name in names:self.assertNotIn(name,wire)
+            self.assertNotIn('SECRET_SOURCE_',wire)
+            self.assertIn('Compare configured values',wire)
+            self.assertEqual(captured[0]['state']['corpus']['file_count'],3)
+        finally:
+            server.shutdown();server.server_close();thread.join()
 
     def test_invalid_compute_policy_rejected(self):
         row=json.loads(self.cfg.read_text());row['compute_policy']={'risk_high_max':.9}
