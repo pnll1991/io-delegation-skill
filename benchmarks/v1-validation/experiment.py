@@ -514,7 +514,7 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
             'rework': 0,
             'errors': errors,
             'notes': '',
-            'tags': list(task.get('tags', [])),
+            'tags': list(dict.fromkeys([*task.get('tags', []), CODEX_ISOLATION_TAG])),
         }
         run_record.append(out_root / 'runs.jsonl', result_record)
         write_json(run_dir / 'record.json', run_record.sanitized(result_record))
