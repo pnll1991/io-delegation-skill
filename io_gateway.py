@@ -20,6 +20,7 @@ SKILL_SOURCE = ROOT / 'skills' / 'io-delegation'
 SERVER_NAME = 'io_context'
 STATE_VERSION = 2
 DEFAULT_JEV_SETUP_MODE = 'off'
+DEFAULT_COMPACTION_SETUP_MODE = 'on'
 COMPACTION_PLUGIN_NAME = 'io-delegation-jev-compaction'
 COMPACTION_PLUGIN_REF = 'io-delegation-jev-compaction@io-delegation'
 COMPACTION_MARKETPLACE = 'pnll1991/io-delegation-skill'
@@ -693,6 +694,16 @@ def credential_names(worker, router, generated_router_env=None, compaction_env=N
     return list(dict.fromkeys(names))
 
 
+def compaction_setup_mode(args,existing):
+    if args.compaction is not None:
+        return args.compaction
+    if existing:
+        preference=existing.get('compaction_preference')
+        if preference in ('on','off'):
+            return preference
+    return DEFAULT_COMPACTION_SETUP_MODE
+
+
 def setup_choices(root,args,existing):
     agents=(resolve_agents(root,args.agent) if args.agent else
             list(existing.get('agents',[])) if existing else resolve_agents(root,None))
@@ -711,8 +722,7 @@ def setup_choices(root,args,existing):
         router_mode='on'; router_source=existing['router_config']
     else:
         router_mode=args.jev or DEFAULT_JEV_SETUP_MODE; router_source=None
-    compaction=(args.compaction if args.compaction is not None else
-                existing.get('compaction_mode','off') if existing else 'off')
+    compaction=compaction_setup_mode(args,existing)
     return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction
 
 
@@ -722,6 +732,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
           'scope':{'prefixes':state['allow_prefixes'],'files':state['allow_files']},
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
           'jev_compaction':state.get('compaction_mode')=='on',
+          'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
           'worker_auto_dispatch':dispatch,
           'guard':state['guard_mode'],'activation':state.get('activation_mode','auto'),
           'actions':actions,'guard_actions':guard_rows,'compaction_actions':compaction_rows,'writes':False}
@@ -731,7 +742,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
-    print('Compaction: '+('on (project-scoped: '+', '.join(state.get('compaction_hosts',[]))+')' if state.get('compaction_mode')=='on' else 'off'))
+    print('Compaction: '+('automatic (project-scoped: '+', '.join(state.get('compaction_hosts',[]))+')' if state.get('compaction_mode')=='on' else 'off'))
     if state.get('worker_config'):
         print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
     else:
@@ -772,6 +783,7 @@ def command_setup(args):
            'worker_config':str(worker) if worker else None,'router_config':str(router_plan) if router_plan else None,
            'router_generated':bool(router_generated),'credential_env_names':credentials,
            'compaction_mode':compaction,
+           'compaction_preference':compaction,
            'compaction_hosts':agents if compaction=='on' else [],
            'compaction_policy':str(compaction_policy) if compaction=='on' else None,
            'compaction_api_key_env':args.typesafe_env if compaction=='on' else None,
@@ -853,7 +865,7 @@ def command_setup(args):
     print('Agents: '+', '.join(agents))
     print(f'Context scope: {len(prefixes)} folders + {len(files)} root files')
     print('Smart routing: '+('TypeSafe Jev' if router else 'local rules'))
-    print('Jev compaction: '+('enabled for '+', '.join(agents) if compaction=='on' else 'off'))
+    print('Jev compaction: '+('automatic for '+', '.join(agents) if compaction=='on' else 'off'))
     print('Semantic worker: '+('configured' if worker else 'off'))
     print('Read guard: '+guard)
     print(f'State: {path}')
@@ -1012,6 +1024,7 @@ def status_data(root):
             'scope':{'prefixes':state.get('allow_prefixes',[]),'files':state.get('allow_files',[])},
             'runtime':runtime_bootstrap().is_file(),'smart_routing':bool(state.get('router_config')),
             'jev_compaction':state.get('compaction_mode')=='on',
+            'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
             'compaction_hosts':configured_compaction_hosts(state),
             'compaction_adapters':{
                 a:compaction_hook_installed(root,a)
@@ -1039,7 +1052,7 @@ def command_status(args):
     print('Jev router    '+('enabled' if data['smart_routing'] else 'off'))
     if data['jev_compaction']:
         detail=', '.join(f"{a}:{'ready' if ok else 'missing'}" for a,ok in data['compaction_adapters'].items())
-        print('Compaction    enabled | '+detail)
+        print('Compaction    automatic | '+detail)
     else:
         print('Compaction    off')
     for name,present in data['credential_envs'].items(): print(f"Credential    {name}: {'available' if present else 'missing'}")
