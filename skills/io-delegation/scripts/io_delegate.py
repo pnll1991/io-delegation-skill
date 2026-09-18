@@ -25,7 +25,8 @@ import urllib.request
 
 # Also works when loaded through importlib by tests or an embedding host.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from worker_runtime import Journal, TransportError, invoke_codex, normalize_usage, run_process, usage_complete
+from worker_runtime import Journal, TransportError, invoke_codex, invoke_cursor, normalize_usage, run_process, usage_complete
+import model_policy
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 MAX_FILES = 12
@@ -179,8 +180,8 @@ def load_config(path: str) -> dict[str, Any]:
     cfg = json.loads(raw)
     if not isinstance(cfg, dict) or cfg.get('approved') is not True:
         raise DelegateError('El usuario debe revisar y aprobar el adaptador antes de ejecutarlo.')
-    if cfg.get('adapter') not in {'command', 'chat-completions', 'codex-cli'}:
-        raise DelegateError('adapter debe ser command, chat-completions o codex-cli.')
+    if cfg.get('adapter') not in {'command', 'chat-completions', 'codex-cli', 'cursor-cli', 'host-cli'}:
+        raise DelegateError('adapter debe ser command, chat-completions, codex-cli, cursor-cli o host-cli.')
     timeout = cfg.get('timeout_seconds', 60)
     if (type(timeout) not in (int, float) or not math.isfinite(timeout)
             or not 0 < timeout <= 300):
@@ -191,15 +192,25 @@ def load_config(path: str) -> dict[str, Any]:
     auto_dispatch = cfg.get('context_auto_dispatch', False)
     if type(auto_dispatch) is not bool:
         raise DelegateError('context_auto_dispatch debe ser true o false.')
-    if cfg['adapter'] == 'codex-cli':
+    if cfg['adapter'] in ('codex-cli', 'cursor-cli'):
         model = cfg.get('model')
         if not isinstance(model, str) or not model.strip() or any(x in model.upper() for x in ('YOUR_', 'REEMPLAZAR', '<', '>')):
             raise DelegateError('Configurá un identificador de modelo real.')
-        if cfg.get('reasoning_effort', 'low') not in ('low', 'medium', 'high'):
-            raise DelegateError('reasoning_effort debe ser low, medium o high.')
-        executable = cfg.get('executable', 'codex')
+        if cfg.get('reasoning_effort', 'medium') not in model_policy.EFFORTS:
+            raise DelegateError('reasoning_effort no admitido.')
+        default_executable = 'codex' if cfg['adapter'] == 'codex-cli' else 'agent'
+        executable = cfg.get('executable', default_executable)
         if not isinstance(executable, str) or not executable.strip():
             raise DelegateError('executable debe identificar la CLI instalada.')
+        if cfg['adapter'] == 'cursor-cli':
+            cursor_model = cfg.get('cursor_model')
+            if cursor_model is not None and (not isinstance(cursor_model, str) or not cursor_model.strip()):
+                raise DelegateError('cursor_model debe ser un identificador no vacío.')
+    elif cfg['adapter'] == 'host-cli':
+        for key in ('codex_executable', 'cursor_executable'):
+            value = cfg.get(key)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise DelegateError(f'{key} debe identificar un ejecutable.')
     elif cfg['adapter'] == 'command':
         argv = cfg.get('argv')
         if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x for x in argv):
@@ -226,6 +237,8 @@ def load_config(path: str) -> dict[str, Any]:
             raise DelegateError('Falta la variable de entorno configurada para la API key.')
     profiles = cfg.get('compute_profiles')
     if profiles is not None:
+        if cfg.get('model_policy') is not None:
+            raise DelegateError('Usá model_policy o compute_profiles, no ambos.')
         if not isinstance(profiles, dict) or set(profiles) - {'cheap'}:
             raise DelegateError('compute_profiles sólo admite el perfil cheap.')
         cheap = profiles.get('cheap')
@@ -233,23 +246,27 @@ def load_config(path: str) -> dict[str, Any]:
             raise DelegateError('compute_profiles.cheap debe ser un objeto.')
         if set(cheap) - {'model','reasoning_effort','max_output_tokens'}:
             raise DelegateError('Opción desconocida en compute_profiles.cheap.')
-        if cfg['adapter'] == 'command':
-            raise DelegateError('Un worker command opaco no puede cambiar perfiles de modelo.')
+        if cfg['adapter'] in ('command', 'host-cli'):
+            raise DelegateError('Ese adapter no admite el perfil cheap legacy; usá model_policy.')
         model = cheap.get('model', cfg.get('model'))
         if not isinstance(model, str) or not model.strip() or any(x in model.upper() for x in ('REEMPLAZAR','YOUR_','<','>')):
             raise DelegateError('El perfil cheap requiere un modelo real.')
-        if cfg['adapter'] == 'codex-cli':
-            if cheap.get('reasoning_effort', cfg.get('reasoning_effort','low')) not in ('low','medium','high'):
-                raise DelegateError('cheap reasoning_effort debe ser low, medium o high.')
-            if 'max_output_tokens' in cheap:
+        if cfg['adapter'] in ('codex-cli','cursor-cli'):
+            effort=cheap.get('reasoning_effort', cfg.get('reasoning_effort','medium'))
+            if effort not in model_policy.EFFORTS:
+                raise DelegateError('cheap reasoning_effort no admitido.')
+            if cfg['adapter']=='codex-cli' and 'max_output_tokens' in cheap:
                 raise DelegateError('Codex CLI no expone un hard cap portable de output tokens.')
-        else:
-            if 'reasoning_effort' in cheap:
-                raise DelegateError('reasoning_effort no es portable en chat-completions.')
-            if 'max_output_tokens' in cheap:
-                value=cheap['max_output_tokens']
-                if type(value) is not int or not 64 <= value <= 4096:
-                    raise DelegateError('cheap max_output_tokens debe estar entre 64 y 4096.')
+        elif 'reasoning_effort' in cheap:
+            raise DelegateError('reasoning_effort no es portable en chat-completions.')
+        if 'max_output_tokens' in cheap:
+            value=cheap['max_output_tokens']
+            if type(value) is not int or not 64 <= value <= 4096:
+                raise DelegateError('cheap max_output_tokens debe estar entre 64 y 4096.')
+    try:
+        model_policy.validate_config(cfg)
+    except model_policy.ModelPolicyError as exc:
+        raise DelegateError(str(exc)) from None
     return cfg
 
 
@@ -295,6 +312,10 @@ def invoke(job: dict[str, Any], cfg: dict[str, Any], root: Path, record=None) ->
         raise DelegateError('Solicitud demasiado grande. Dividí la tarea; no se trunca.')
     if cfg['adapter'] == 'codex-cli':
         return invoke_codex(job, cfg, record)
+    if cfg['adapter'] == 'cursor-cli':
+        return invoke_cursor(job, cfg, record)
+    if cfg['adapter'] == 'host-cli':
+        raise DelegateError('host-cli debe resolverse a codex-cli o cursor-cli antes del dispatch.')
     if cfg['adapter'] == 'command':
         argv = [x.replace('{python}', sys.executable).replace('{skill}', str(SKILL_ROOT)) for x in cfg['argv']]
         cp = run_process(argv, cwd=root, timeout=timeout, payload=payload, max_output=MAX_RESPONSE_BYTES,
