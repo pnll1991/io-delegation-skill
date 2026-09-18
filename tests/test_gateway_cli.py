@@ -46,7 +46,49 @@ class GatewayCLITests(unittest.TestCase):
             code,text,err=self.cli('setup','--project',str(self.project),'--agent','codex','--dry-run')
         self.assertEqual(code,0,err)
         self.assertIn('Jev: off',text)
+        self.assertIn('Compaction: off',text)
         self.assertFalse(self.home.exists())
+
+    def test_compaction_requires_claude_code_agent(self):
+        code,text,err=self.cli('setup','--project',str(self.project),'--agent','codex',
+                               '--compaction','on','--dry-run')
+        self.assertEqual(code,2)
+        self.assertIn('requires --agent claude-code',err)
+
+    def test_compaction_policy_is_project_local_and_secret_free(self):
+        gateway.ensure_marker(self.project)
+        secret='NEVER_WRITE_THIS_KEY'
+        with patch.dict(os.environ,{'CUSTOM_JEV_KEY':secret},clear=False):
+            path,action=gateway.sync_compaction_policy(self.project,'on','CUSTOM_JEV_KEY')
+        self.assertEqual(action,'written')
+        row=json.loads(path.read_text(encoding='utf-8'))
+        self.assertTrue(row['enabled'])
+        self.assertEqual(row['approved_data_scope'],gateway.COMPACTION_DATA_SCOPE)
+        self.assertEqual(row['api_key_env'],'CUSTOM_JEV_KEY')
+        self.assertNotIn(secret,path.read_text(encoding='utf-8'))
+
+    def test_compaction_plugin_install_uses_io_delegation_marketplace(self):
+        calls=[]
+        class Result:
+            returncode=0; stdout=''; stderr=''
+        def fake_run(argv,**kwargs):
+            calls.append(argv); return Result()
+        with patch.object(gateway,'claude_cli',return_value='claude'), \
+             patch.object(gateway,'claude_compaction_installed',return_value=False), \
+             patch.object(gateway.subprocess,'run',side_effect=fake_run):
+            status=gateway.ensure_claude_compaction_plugin()
+        self.assertEqual(status,'installed')
+        self.assertEqual(calls[0],['claude','plugin','marketplace','add',gateway.COMPACTION_MARKETPLACE])
+        self.assertEqual(calls[1],['claude','plugin','install',gateway.COMPACTION_PLUGIN_REF])
+
+    def test_function_hooks_flag_preserves_existing_claude_settings(self):
+        path=self.host/'.claude/settings.json'; path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'permissions':{'allow':['Read']}}),encoding='utf-8')
+        action=gateway.ensure_claude_function_hooks_flag()
+        self.assertEqual(action,'written')
+        row=json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(row['permissions'],{'allow':['Read']})
+        self.assertEqual(row['env']['CLAUDE_CODE_ENABLE_FUNCTION_HOOKS'],'1')
 
     def test_codex_setup_uses_global_mcp_and_real_doctor(self):
         code,text,err=self.setup_codex()

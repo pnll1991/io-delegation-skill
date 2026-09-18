@@ -30,3 +30,25 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Run offline tests without model providers
         run: python -m unittest discover -s tests -v
+
+  compaction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: integrations/claude-code/jev-compaction/package-lock.json
+      - name: Install vendored compaction test dependencies
+        working-directory: integrations/claude-code/jev-compaction
+        run: npm ci
+      - name: Run compaction core and project-policy tests
+        working-directory: integrations/claude-code/jev-compaction
+        run: npm test
+      - name: Typecheck compaction core and Claude hook
+        working-directory: integrations/claude-code/jev-compaction
+        run: npm run typecheck

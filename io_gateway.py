@@ -20,6 +20,10 @@ SKILL_SOURCE = ROOT / 'skills' / 'io-delegation'
 SERVER_NAME = 'io_context'
 STATE_VERSION = 2
 DEFAULT_JEV_SETUP_MODE = 'off'
+COMPACTION_PLUGIN_NAME = 'io-delegation-jev-compaction'
+COMPACTION_PLUGIN_REF = 'io-delegation-jev-compaction@io-delegation'
+COMPACTION_MARKETPLACE = 'pnll1991/io-delegation-skill'
+COMPACTION_DATA_SCOPE = 'conversation_text_and_tool_inputs'
 USER_ROOT = Path(os.environ.get('IO_DELEGATION_HOME', str(Path.home()/'.io-delegation'))).expanduser()
 HOST_HOME = Path(os.environ.get('IO_DELEGATION_HOST_HOME', str(Path.home()))).expanduser()
 MARKER_DIR = Path('.io-delegation')
@@ -282,6 +286,95 @@ def make_router_config(root, project_id, mode, env_name, supplied=None, dry_run=
     decision_router.load_config(str(path)); return path, True
 
 
+
+def compaction_policy_path(root):
+    return Path(root)/MARKER_DIR/'compaction.json'
+
+
+def compaction_policy_data(env_name):
+    return {
+        'version':1,
+        'enabled':True,
+        'provider':'typesafe',
+        'approved_data_scope':COMPACTION_DATA_SCOPE,
+        'api_key_env':env_name,
+        'model':'jev-latest',
+        'keep_threshold':0.5,
+        'preserve_recent_messages':6,
+        'compact_at_percent':60,
+        'min_reduction_ratio':0.25,
+        'max_state_tokens':25000,
+        'max_request_tokens':30000,
+        'truncate_head_chars':300,
+        'upstream_commit':'e3f262a7f4d42bd8dd32ced30d26176f7cb545b0',
+    }
+
+
+def sync_compaction_policy(root, mode, env_name, dry_run=False):
+    path=compaction_policy_path(root)
+    if mode != 'on':
+        if not path.exists(): return path,'unchanged'
+        if dry_run: return path,'remove'
+        path.unlink(); return path,'removed'
+    data=encoded(compaction_policy_data(env_name))
+    if path.is_file() and path.read_bytes()==data: return path,'unchanged'
+    if dry_run: return path,'write'
+    atomic_write(path,data); return path,'written'
+
+
+def claude_settings_path():
+    return HOST_HOME/'.claude'/'settings.json'
+
+
+def claude_function_hooks_enabled():
+    if os.environ.get('CLAUDE_CODE_ENABLE_FUNCTION_HOOKS') == '1': return True
+    row=read_json(claude_settings_path(),{})
+    env=row.get('env',{}) if isinstance(row,dict) else {}
+    return isinstance(env,dict) and str(env.get('CLAUDE_CODE_ENABLE_FUNCTION_HOOKS','')) == '1'
+
+
+def ensure_claude_function_hooks_flag(dry_run=False):
+    if claude_function_hooks_enabled(): return 'unchanged'
+    path=claude_settings_path(); current=read_json(path,{})
+    if not isinstance(current,dict): raise ValueError('Claude settings.json must contain an object')
+    env=current.get('env')
+    if env is None: env={}
+    if not isinstance(env,dict): raise ValueError('Claude settings env must contain an object')
+    existing=env.get('CLAUDE_CODE_ENABLE_FUNCTION_HOOKS')
+    if existing not in (None,'1',1,True):
+        raise ValueError('Claude function hooks flag has a conflicting value')
+    new=json.loads(json.dumps(current)); new.setdefault('env',{})['CLAUDE_CODE_ENABLE_FUNCTION_HOOKS']='1'
+    if dry_run: return 'write'
+    snap=backup_snapshot(path,'claude-function-hooks'); atomic_write(path,encoded(new)); finalize_backup(snap,path)
+    return 'written'
+
+
+def claude_compaction_installed():
+    exe=claude_cli()
+    if not exe: return False
+    cp=subprocess.run([exe,'plugin','list'],capture_output=True,text=True,encoding='utf-8',
+                      errors='replace',timeout=30)
+    if cp.returncode: return False
+    text=(cp.stdout or '')+(cp.stderr or '')
+    return COMPACTION_PLUGIN_NAME in text
+
+
+def ensure_claude_compaction_plugin(dry_run=False):
+    exe=claude_cli()
+    if not exe: return 'unavailable'
+    if claude_compaction_installed(): return 'unchanged'
+    if dry_run: return 'install'
+    def call(argv,label,allow_already=False):
+        cp=subprocess.run(argv,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=60)
+        text=(cp.stdout or '')+(cp.stderr or '')
+        if cp.returncode and not (allow_already and 'already' in text.lower()):
+            raise ValueError(label+' failed: '+text[-400:])
+    call([exe,'plugin','marketplace','add',COMPACTION_MARKETPLACE],
+         'Claude plugin marketplace registration',allow_already=True)
+    call([exe,'plugin','install',COMPACTION_PLUGIN_REF],'Claude compaction plugin installation')
+    return 'installed'
+
+
 def validate_worker(root, supplied):
     if not supplied: return None
     path=external_file(root,supplied,'Worker config')
@@ -307,6 +400,9 @@ def env_names_for_state(state):
         import decision_router
         cfg=decision_router.load_config(state['router_config'])
         names.append(cfg['api_key_env'])
+    if state.get('compaction_mode') == 'on':
+        name=state.get('compaction_api_key_env','TYPESAFE_API_KEY')
+        if isinstance(name,str) and name: names.append(name)
     return list(dict.fromkeys(names))
 
 
@@ -514,7 +610,7 @@ def optional_state(root):
     except ValueError: return None
 
 
-def credential_names(worker, router, generated_router_env=None):
+def credential_names(worker, router, generated_router_env=None, compaction_env=None):
     names=[]; sys.path.insert(0,str(SKILL_SOURCE/'scripts'))
     if worker:
         import io_delegate
@@ -525,6 +621,7 @@ def credential_names(worker, router, generated_router_env=None):
         names.append(decision_router.load_config(str(router))['api_key_env'])
     elif generated_router_env:
         names.append(generated_router_env)
+    if compaction_env: names.append(compaction_env)
     return list(dict.fromkeys(names))
 
 
@@ -546,7 +643,9 @@ def setup_choices(root,args,existing):
         router_mode='on'; router_source=existing['router_config']
     else:
         router_mode=args.jev or DEFAULT_JEV_SETUP_MODE; router_source=None
-    return agents,prefixes,files,guard,activation,worker,router_mode,router_source
+    compaction=(args.compaction if args.compaction is not None else
+                existing.get('compaction_mode','off') if existing else 'off')
+    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction
 
 
 def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
@@ -554,6 +653,7 @@ def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
     plan={'project':str(root),'project_id':state['project_id'],'agents':state['agents'],
           'scope':{'prefixes':state['allow_prefixes'],'files':state['allow_files']},
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
+          'jev_compaction':state.get('compaction_mode')=='on',
           'worker_auto_dispatch':dispatch,
           'guard':state['guard_mode'],'activation':state.get('activation_mode','auto'),'actions':actions,'guard_actions':guard_rows,'writes':False}
     if json_mode:
@@ -562,6 +662,7 @@ def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
+    print('Compaction: '+('on (Claude Code, project-scoped)' if state.get('compaction_mode')=='on' else 'off'))
     if state.get('worker_config'):
         print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
     else:
@@ -575,7 +676,9 @@ def command_setup(args):
     root=Path(args.project).expanduser().resolve(strict=True)
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
-    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source=setup_choices(root,args,existing)
+    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction=setup_choices(root,args,existing)
+    if compaction == 'on' and 'claude-code' not in agents:
+        raise ValueError('Jev compaction currently requires --agent claude-code')
 
     # Phase 1: resolve and validate the complete plan without writing anything.
     project_id,marker_action=ensure_marker(root,dry_run=True)
@@ -585,7 +688,12 @@ def command_setup(args):
                                                     router_source,dry_run=True)
     if existing and args.jev is None and not args.router_config and router_plan and str(router_plan)==existing.get('router_config'):
         router_generated=bool(existing.get('router_generated'))
-    credentials=credential_names(worker,router_plan,args.typesafe_env if router_generated else None)
+    compaction_policy,compaction_policy_action=sync_compaction_policy(
+        root,compaction,args.typesafe_env,dry_run=True)
+    compaction_plugin_action=ensure_claude_compaction_plugin(dry_run=True) if compaction=='on' else 'off'
+    function_hooks_action=ensure_claude_function_hooks_flag(dry_run=True) if compaction=='on' else 'off'
+    credentials=credential_names(worker,router_plan,args.typesafe_env if router_generated else None,
+                                 args.typesafe_env if compaction=='on' else None)
     skill_actions={}
     for agent in agents:
         _,skill_actions[agent]=install_skill(root,agent,args.update,dry_run=True)
@@ -594,6 +702,9 @@ def command_setup(args):
            'audit_root':str(audit),'allow_prefixes':prefixes,'allow_files':files,
            'worker_config':str(worker) if worker else None,'router_config':str(router_plan) if router_plan else None,
            'router_generated':bool(router_generated),'credential_env_names':credentials,
+           'compaction_mode':compaction,
+           'compaction_policy':str(compaction_policy) if compaction=='on' else None,
+           'compaction_api_key_env':args.typesafe_env if compaction=='on' else None,
            'guard_mode':guard,'activation_mode':activation,'activation_limits':existing.get('activation_limits',{}) if existing else {},
            'configured_at':existing.get('configured_at',int(time.time())) if existing else int(time.time()),
            'updated_at':int(time.time()),'skill_hashes':{},'registrations':{}}
@@ -606,17 +717,26 @@ def command_setup(args):
                  **{f'skill:{k}':v for k,v in skill_actions.items()},
                  'codex_mcp':global_actions['codex'][1],
                  'cursor_mcp':global_actions['cursor'][1],
-                 'claude_mcp':global_actions['claude-code'][1]}
+                 'claude_mcp':global_actions['claude-code'][1],
+                 'compaction_policy':compaction_policy_action,
+                 'compaction_plugin':compaction_plugin_action,
+                 'claude_function_hooks':function_hooks_action}
         print_setup_plan(root,state,actions,guard_rows,args.json); return 0
 
     # Phase 2: apply only after every collision/policy check above has passed.
     ensure_marker(root,dry_run=False,project_id=project_id)
     install_runtime(dry_run=False)
+    if compaction == 'on':
+        ensure_claude_function_hooks_flag(dry_run=False)
+        ensure_claude_compaction_plugin(dry_run=False)
+    sync_compaction_policy(root,compaction,args.typesafe_env,dry_run=False)
     router,router_generated=make_router_config(root,project_id,router_mode,args.typesafe_env,
                                                router_source,dry_run=False)
     state['router_config']=str(router) if router else None
     state['router_generated']=bool(router_generated)
-    state['credential_env_names']=credential_names(worker,router,args.typesafe_env if router_generated else None)
+    state['credential_env_names']=credential_names(
+        worker,router,args.typesafe_env if router_generated else None,
+        args.typesafe_env if compaction=='on' else None)
     for agent in agents:
         install_skill(root,agent,args.update,dry_run=False)
     audit.mkdir(parents=True,exist_ok=True)
@@ -644,6 +764,7 @@ def command_setup(args):
     print('Agents: '+', '.join(agents))
     print(f'Context scope: {len(prefixes)} folders + {len(files)} root files')
     print('Smart routing: '+('TypeSafe Jev' if router else 'local rules'))
+    print('Jev compaction: '+('enabled for Claude Code' if compaction=='on' else 'off'))
     print('Semantic worker: '+('configured' if worker else 'off'))
     print('Read guard: '+guard)
     print(f'State: {path}')
@@ -672,7 +793,7 @@ def remove_skill_copies(root,state,force=False,dry_run=False):
 def cleanup_marker(root,dry_run=False):
     folder=Path(root)/MARKER_DIR
     if not folder.exists(): return 'absent'
-    allowed={'project.json','.gitignore'}
+    allowed={'project.json','compaction.json','.gitignore'}
     names={p.name for p in folder.iterdir()}
     if names-allowed: return 'preserved_nonmanaged_files'
     if dry_run: return 'would_remove'
@@ -797,6 +918,9 @@ def status_data(root):
             'moved':str(root)!=state.get('project'),'agents':{a:registration_present(a) for a in state.get('agents',[])},
             'scope':{'prefixes':state.get('allow_prefixes',[]),'files':state.get('allow_files',[])},
             'runtime':runtime_bootstrap().is_file(),'smart_routing':bool(state.get('router_config')),
+            'jev_compaction':state.get('compaction_mode')=='on',
+            'compaction_plugin':claude_compaction_installed() if state.get('compaction_mode')=='on' else False,
+            'function_hooks':claude_function_hooks_enabled() if state.get('compaction_mode')=='on' else False,
             'credential_envs':{name:bool(os.environ.get(name)) for name in envs},
             'semantic_worker':bool(state.get('worker_config')),
             'worker_auto_dispatch':worker_auto_dispatch(state.get('worker_config')),
@@ -817,6 +941,11 @@ def command_status(args):
     print(f"Context scope {len(data['scope']['prefixes'])} folders + {len(data['scope']['files'])} files")
     print('Runtime       '+('ready' if data['runtime'] else 'missing'))
     print('Jev router    '+('enabled' if data['smart_routing'] else 'off'))
+    if data['jev_compaction']:
+        print('Compaction    enabled | plugin '+('ready' if data['compaction_plugin'] else 'missing/pending')+
+              ' | function hooks '+('ready' if data['function_hooks'] else 'missing'))
+    else:
+        print('Compaction    off')
     for name,present in data['credential_envs'].items(): print(f"Credential    {name}: {'available' if present else 'missing'}")
     if data['semantic_worker']:
         print('Worker        configured; experimental auto-dispatch '+('on' if data['worker_auto_dispatch'] else 'off'))
@@ -874,6 +1003,19 @@ def command_doctor(args):
             cfg=decision_router.load_config(state['router_config']); key=cfg['api_key_env']
             add('Jev config','pass',state['router_config']); add('Jev key','pass' if os.environ.get(key) else 'warn',key)
         except Exception as exc: add('Jev config','fail',str(exc))
+    if state.get('compaction_mode') == 'on':
+        policy=read_json(compaction_policy_path(root),{})
+        valid=(isinstance(policy,dict) and policy.get('version')==1 and policy.get('enabled') is True and
+               policy.get('provider')=='typesafe' and policy.get('approved_data_scope')==COMPACTION_DATA_SCOPE)
+        add('Jev compaction policy','pass' if valid else 'fail',str(compaction_policy_path(root)))
+        hooks_ready=claude_function_hooks_enabled()
+        add('Claude function hooks','pass' if hooks_ready else 'warn',
+            'enabled' if hooks_ready else 'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 is required')
+        plugin_ready=claude_compaction_installed()
+        add('Jev compaction plugin','pass' if plugin_ready else 'warn',
+            COMPACTION_PLUGIN_NAME if plugin_ready else 'install pending or Claude CLI unavailable')
+        key=state.get('compaction_api_key_env') or 'TYPESAFE_API_KEY'
+        add('Jev compaction key','pass' if os.environ.get(key) else 'warn',key)
     if state.get('worker_config'):
         try:
             validate_worker(root,state['worker_config']); add('worker config','pass',state['worker_config'])
@@ -914,6 +1056,7 @@ def build_parser():
     setup.add_argument('--allow-prefix',action='append'); setup.add_argument('--allow-file',action='append')
     setup.add_argument('--worker-config'); setup.add_argument('--no-worker',action='store_true')
     setup.add_argument('--router-config'); setup.add_argument('--jev',choices=['auto','on','off'],default=None)
+    setup.add_argument('--compaction',choices=['on','off'],default=None)
     setup.add_argument('--typesafe-env',default='TYPESAFE_API_KEY')
     setup.add_argument('--guard',choices=['off','observe','enforce'],default=None)
     setup.add_argument('--activation',choices=['auto','always','off'],default=None)
