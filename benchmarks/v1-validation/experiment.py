@@ -323,10 +323,13 @@ def codex_base_command(worktree, sandbox):
         "-C", str(worktree), "-s", sandbox,
         "-c", "approval_policy=\"never\"",
         "-c", "web_search=\"disabled\"",
+        "-c", "features.shell_tool=true",
+        "-c", "features.unified_exec=false",
         "-c", "features.multi_agent=false",
         "-c", "features.memories=false",
         "-c", "features.skill_mcp_dependency_install=false",
-    ]
+        "-c", "sandbox_workspace_write.network_access=false",
+    ] + (["-c", "windows.sandbox=\"unelevated\""] if os.name == "nt" else [])
 
 
 def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out_root, keep_raw=False):

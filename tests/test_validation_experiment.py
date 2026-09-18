@@ -141,9 +141,13 @@ class ExperimentTests(unittest.TestCase):
         self.assertIn('apps',command); self.assertIn('plugins',command)
         self.assertIn('approval_policy=\"never\"',text)
         self.assertIn('web_search=\"disabled\"',text)
+        self.assertIn('features.shell_tool=true',text)
+        self.assertIn('features.unified_exec=false',text)
         self.assertIn('features.multi_agent=false',text)
         self.assertIn('features.memories=false',text)
         self.assertIn('features.skill_mcp_dependency_install=false',text)
+        self.assertIn('sandbox_workspace_write.network_access=false',text)
+        if os.name == 'nt': self.assertIn('windows.sandbox=\"unelevated\"',text)
         self.assertIn('workspace-write',command)
 
     def test_run_conditions_are_explicit(self):
