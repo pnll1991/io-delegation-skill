@@ -8,6 +8,22 @@
 
 **Auxiliar nativo.** Es opcional. Ver el contrato al final de `PLAYBOOK.md`; no hay llamadas inventadas a APIs de agentes.
 
+## Host CLI para Codex y Cursor
+
+Para la política dinámica de modelos, copiar `assets/worker.host-cli.example.json` fuera de la skill, revisarlo, cambiar `approved` a `true` y pasarlo a setup:
+
+```bash
+io-delegation setup --project . \
+  --worker-config /ruta/privada/worker.host-cli.json \
+  --model-preset balanced
+```
+
+`adapter: "host-cli"` se resuelve según el host MCP que inició la operación. Codex reutiliza su CLI autenticada en un turno efímero read-only; Cursor reutiliza Cursor Agent en un workspace temporal con Ask mode, sandbox y permisos deny para shell, escritura, web y MCP. No se copian credenciales entre productos.
+
+`model_policy` permite reemplazar perfiles, `cost_index`, capacidad declarada, orden por preset, `min_profile`, `max_profile`, allow/block lists y límites de escalación. Los defaults usan Astra low como ceiling de Codex y Sol high como ceiling de Cursor. El Router nativo de Cursor sólo se usa si el operador configura explícitamente `strategy: "native-router-first"` y `native_router_model`.
+
+Opcionalmente `codex_executable` y `cursor_executable` fijan launchers revisados. Ver [ORCHESTRATION.md](ORCHESTRATION.md).
+
 ## Configurar un servidor compatible con Chat Completions
 
 Copiar `assets/worker.local.example.json` fuera de la skill, por ejemplo a `worker.local.json` dentro del proyecto. Revisar URL, identificador real del modelo, permisos de datos, presupuesto y límites. El usuario cambia `approved` a `true` solo después de esa revisión. Añadir `worker.local.json` y `.io-delegation/` al `.gitignore` del proyecto receptor.
