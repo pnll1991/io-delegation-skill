@@ -57,6 +57,7 @@ def configs_dir(): return USER_ROOT/'configs'
 def backups_dir(): return USER_ROOT/'backups'
 def runtime_skill(): return USER_ROOT/'runtime'/'io-delegation'
 def runtime_bootstrap(): return runtime_skill()/'scripts'/'context_bootstrap.py'
+def runtime_compaction(): return runtime_skill()/'scripts'/'context_compaction.py'
 def codex_config_path():
     home = Path(os.environ.get('CODEX_HOME', str(HOST_HOME/'.codex'))).expanduser()
     return home/'config.toml'
@@ -291,7 +292,7 @@ def compaction_policy_path(root):
     return Path(root)/MARKER_DIR/'compaction.json'
 
 
-def compaction_policy_data(env_name):
+def compaction_policy_data(env_name, agents=None):
     return {
         'version':1,
         'enabled':True,
@@ -299,6 +300,7 @@ def compaction_policy_data(env_name):
         'approved_data_scope':COMPACTION_DATA_SCOPE,
         'api_key_env':env_name,
         'model':'jev-latest',
+        'hosts':list(dict.fromkeys(agents or [])),
         'keep_threshold':0.5,
         'preserve_recent_messages':6,
         'compact_at_percent':60,
@@ -306,17 +308,19 @@ def compaction_policy_data(env_name):
         'max_state_tokens':25000,
         'max_request_tokens':30000,
         'truncate_head_chars':300,
+        'max_rehydrate_chars':24000,
+        'retain_session_cache':False,
         'upstream_commit':'e3f262a7f4d42bd8dd32ced30d26176f7cb545b0',
     }
 
 
-def sync_compaction_policy(root, mode, env_name, dry_run=False):
+def sync_compaction_policy(root, mode, env_name, agents=None, dry_run=False):
     path=compaction_policy_path(root)
     if mode != 'on':
         if not path.exists(): return path,'unchanged'
         if dry_run: return path,'remove'
         path.unlink(); return path,'removed'
-    data=encoded(compaction_policy_data(env_name))
+    data=encoded(compaction_policy_data(env_name,agents))
     if path.is_file() and path.read_bytes()==data: return path,'unchanged'
     if dry_run: return path,'write'
     atomic_write(path,data); return path,'written'
@@ -605,6 +609,39 @@ def remove_guard(root, agents, *, dry_run=False, allow_tracked=False):
     return rows
 
 
+
+def compaction_hook_record(root, agent):
+    return Path(root)/'.io-delegation-hooks'/f'{agent}.compaction.json'
+
+
+def compaction_hook_installed(root, agent):
+    if agent == 'claude-code':
+        return claude_compaction_installed() and claude_function_hooks_enabled()
+    return compaction_hook_record(root,agent).is_file()
+
+
+def run_compaction_hook_setup(root, agents, mode, *, dry_run=False, allow_tracked=False):
+    rows=[]
+    for agent in agents:
+        if agent == 'claude-code': continue
+        record=compaction_hook_record(root,agent)
+        should_install=mode=='on'
+        if not should_install and not record.is_file(): continue
+        rel=HOOK_CONFIG[agent]
+        if git_tracked(root,rel) and not allow_tracked:
+            raise ValueError(f'{rel} is tracked by git; use --allow-tracked-config only after reviewing the compaction hook diff')
+        argv=[sys.executable,str(ROOT/'install_compaction_hooks.py'),'--agent',agent,
+              '--project',str(root),'--runtime',str(runtime_compaction())]
+        if dry_run: argv.append('--dry-run')
+        if not should_install: argv.append('--remove')
+        cp=subprocess.run(argv,capture_output=True,text=True,encoding='utf-8',
+                          errors='replace',timeout=45)
+        if cp.returncode:
+            raise ValueError(f'Compaction hook setup failed for {agent}: '+(cp.stderr or cp.stdout)[-400:])
+        rows.append(json.loads(cp.stdout))
+    return rows
+
+
 def optional_state(root):
     try: return load_state(root)
     except ValueError: return None
@@ -648,21 +685,22 @@ def setup_choices(root,args,existing):
     return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction
 
 
-def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
+def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=False):
     dispatch=worker_auto_dispatch(state.get('worker_config'))
     plan={'project':str(root),'project_id':state['project_id'],'agents':state['agents'],
           'scope':{'prefixes':state['allow_prefixes'],'files':state['allow_files']},
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
           'jev_compaction':state.get('compaction_mode')=='on',
           'worker_auto_dispatch':dispatch,
-          'guard':state['guard_mode'],'activation':state.get('activation_mode','auto'),'actions':actions,'guard_actions':guard_rows,'writes':False}
+          'guard':state['guard_mode'],'activation':state.get('activation_mode','auto'),
+          'actions':actions,'guard_actions':guard_rows,'compaction_actions':compaction_rows,'writes':False}
     if json_mode:
         print(json.dumps(plan,ensure_ascii=False,indent=2)); return
     print('I/O Delegation setup preview (no files changed)')
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
-    print('Compaction: '+('on (Claude Code, project-scoped)' if state.get('compaction_mode')=='on' else 'off'))
+    print('Compaction: '+('on (project-scoped: '+', '.join(state.get('compaction_hosts',[]))+')' if state.get('compaction_mode')=='on' else 'off'))
     if state.get('worker_config'):
         print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
     else:
@@ -677,8 +715,6 @@ def command_setup(args):
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
     agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction=setup_choices(root,args,existing)
-    if compaction == 'on' and 'claude-code' not in agents:
-        raise ValueError('Jev compaction currently requires --agent claude-code')
 
     # Phase 1: resolve and validate the complete plan without writing anything.
     project_id,marker_action=ensure_marker(root,dry_run=True)
@@ -689,9 +725,10 @@ def command_setup(args):
     if existing and args.jev is None and not args.router_config and router_plan and str(router_plan)==existing.get('router_config'):
         router_generated=bool(existing.get('router_generated'))
     compaction_policy,compaction_policy_action=sync_compaction_policy(
-        root,compaction,args.typesafe_env,dry_run=True)
-    compaction_plugin_action=ensure_claude_compaction_plugin(dry_run=True) if compaction=='on' else 'off'
-    function_hooks_action=ensure_claude_function_hooks_flag(dry_run=True) if compaction=='on' else 'off'
+        root,compaction,args.typesafe_env,agents,dry_run=True)
+    claude_compaction=compaction=='on' and 'claude-code' in agents
+    compaction_plugin_action=ensure_claude_compaction_plugin(dry_run=True) if claude_compaction else 'off'
+    function_hooks_action=ensure_claude_function_hooks_flag(dry_run=True) if claude_compaction else 'off'
     credentials=credential_names(worker,router_plan,args.typesafe_env if router_generated else None,
                                  args.typesafe_env if compaction=='on' else None)
     skill_actions={}
@@ -703,6 +740,7 @@ def command_setup(args):
            'worker_config':str(worker) if worker else None,'router_config':str(router_plan) if router_plan else None,
            'router_generated':bool(router_generated),'credential_env_names':credentials,
            'compaction_mode':compaction,
+           'compaction_hosts':agents if compaction=='on' else [],
            'compaction_policy':str(compaction_policy) if compaction=='on' else None,
            'compaction_api_key_env':args.typesafe_env if compaction=='on' else None,
            'guard_mode':guard,'activation_mode':activation,'activation_limits':existing.get('activation_limits',{}) if existing else {},
@@ -712,6 +750,8 @@ def command_setup(args):
     global_actions=sync_global_mcp(planned_states,dry_run=True,replace=args.replace_existing_mcp)
     guard_rows=run_guard_setup(root,agents,guard,dry_run=True,
                                allow_tracked=args.allow_tracked_config)
+    compaction_rows=run_compaction_hook_setup(
+        root,agents,compaction,dry_run=True,allow_tracked=args.allow_tracked_config)
     if args.dry_run:
         actions={'marker':marker_action,'runtime':runtime_action,
                  **{f'skill:{k}':v for k,v in skill_actions.items()},
@@ -721,12 +761,12 @@ def command_setup(args):
                  'compaction_policy':compaction_policy_action,
                  'compaction_plugin':compaction_plugin_action,
                  'claude_function_hooks':function_hooks_action}
-        print_setup_plan(root,state,actions,guard_rows,args.json); return 0
+        print_setup_plan(root,state,actions,guard_rows,compaction_rows,args.json); return 0
 
     # Phase 2: apply only after every collision/policy check above has passed.
     ensure_marker(root,dry_run=False,project_id=project_id)
     install_runtime(dry_run=False)
-    if compaction == 'on':
+    if claude_compaction:
         # A global plugin without a project policy is inert. Install it before
         # enabling the function-hook flag; the project policy itself is written
         # only inside the transactional state/registration block below.
@@ -752,7 +792,8 @@ def command_setup(args):
         state['registrations']={k:{'target':str(v[0]) if v[0] else None,'status':v[1]}
                                 for k,v in registrations.items()}
         run_guard_setup(root,agents,guard,allow_tracked=args.allow_tracked_config)
-        sync_compaction_policy(root,compaction,args.typesafe_env,dry_run=False)
+        run_compaction_hook_setup(root,agents,compaction,allow_tracked=args.allow_tracked_config)
+        sync_compaction_policy(root,compaction,args.typesafe_env,agents,dry_run=False)
         save_state(state)
     except Exception:
         # Restore state/global registration. The global compaction plugin may
@@ -760,9 +801,13 @@ def command_setup(args):
         try:
             if existing and existing.get('compaction_mode') == 'on':
                 old_env=existing.get('compaction_api_key_env') or 'TYPESAFE_API_KEY'
-                sync_compaction_policy(root,'on',old_env,dry_run=False)
+                old_hosts=existing.get('compaction_hosts') or existing.get('agents',[])
+                run_compaction_hook_setup(root,old_hosts,'on',allow_tracked=True)
+                sync_compaction_policy(root,'on',old_env,old_hosts,dry_run=False)
             else:
-                sync_compaction_policy(root,'off',args.typesafe_env,dry_run=False)
+                try: run_compaction_hook_setup(root,agents,'off',allow_tracked=True)
+                except Exception: pass
+                sync_compaction_policy(root,'off',args.typesafe_env,agents,dry_run=False)
             if previous_bytes is not None and previous_path:
                 atomic_write(previous_path,previous_bytes)
             elif path.is_file(): path.unlink()
@@ -773,7 +818,7 @@ def command_setup(args):
     print('Agents: '+', '.join(agents))
     print(f'Context scope: {len(prefixes)} folders + {len(files)} root files')
     print('Smart routing: '+('TypeSafe Jev' if router else 'local rules'))
-    print('Jev compaction: '+('enabled for Claude Code' if compaction=='on' else 'off'))
+    print('Jev compaction: '+('enabled for '+', '.join(agents) if compaction=='on' else 'off'))
     print('Semantic worker: '+('configured' if worker else 'off'))
     print('Read guard: '+guard)
     print(f'State: {path}')
@@ -814,11 +859,13 @@ def command_remove(args):
     pid=state['project_id']; remaining=all_states(exclude_id=pid)
     guard_plan=remove_guard(root,state.get('agents',[]),dry_run=True,
                             allow_tracked=args.allow_tracked_config)
+    compaction_plan=run_compaction_hook_setup(
+        root,state.get('agents',[]),'off',dry_run=True,allow_tracked=args.allow_tracked_config)
     skill_plan=remove_skill_copies(root,state,args.force,dry_run=True)
     global_plan=sync_global_mcp(remaining,dry_run=True,replace=False)
     marker_plan=cleanup_marker(root,dry_run=True)
     plan={'project':str(root),'project_id':pid,'skills':skill_plan,'guard':guard_plan,
-          'marker':marker_plan,'global_mcp':{k:v[1] for k,v in global_plan.items()},
+          'compaction_hooks':compaction_plan,'marker':marker_plan,'global_mcp':{k:v[1] for k,v in global_plan.items()},
           'audit':'remove' if args.purge_data else 'preserve',
           'runtime':'remove' if args.purge_runtime and not remaining else 'preserve'}
     if args.dry_run:
@@ -829,6 +876,7 @@ def command_remove(args):
         return 0
     sync_global_mcp(remaining,replace=False)
     guard_rows=remove_guard(root,state.get('agents',[]),allow_tracked=args.allow_tracked_config)
+    run_compaction_hook_setup(root,state.get('agents',[]),'off',allow_tracked=args.allow_tracked_config)
     skills=remove_skill_copies(root,state,args.force)
     marker_action=cleanup_marker(root)
     path=Path(state['_state_path'])
@@ -928,8 +976,11 @@ def status_data(root):
             'scope':{'prefixes':state.get('allow_prefixes',[]),'files':state.get('allow_files',[])},
             'runtime':runtime_bootstrap().is_file(),'smart_routing':bool(state.get('router_config')),
             'jev_compaction':state.get('compaction_mode')=='on',
-            'compaction_plugin':claude_compaction_installed() if state.get('compaction_mode')=='on' else False,
-            'function_hooks':claude_function_hooks_enabled() if state.get('compaction_mode')=='on' else False,
+            'compaction_hosts':state.get('compaction_hosts',[]),
+            'compaction_adapters':{
+                a:compaction_hook_installed(root,a)
+                for a in state.get('compaction_hosts',[])
+            } if state.get('compaction_mode')=='on' else {},
             'credential_envs':{name:bool(os.environ.get(name)) for name in envs},
             'semantic_worker':bool(state.get('worker_config')),
             'worker_auto_dispatch':worker_auto_dispatch(state.get('worker_config')),
@@ -951,8 +1002,8 @@ def command_status(args):
     print('Runtime       '+('ready' if data['runtime'] else 'missing'))
     print('Jev router    '+('enabled' if data['smart_routing'] else 'off'))
     if data['jev_compaction']:
-        print('Compaction    enabled | plugin '+('ready' if data['compaction_plugin'] else 'missing/pending')+
-              ' | function hooks '+('ready' if data['function_hooks'] else 'missing'))
+        detail=', '.join(f"{a}:{'ready' if ok else 'missing'}" for a,ok in data['compaction_adapters'].items())
+        print('Compaction    enabled | '+detail)
     else:
         print('Compaction    off')
     for name,present in data['credential_envs'].items(): print(f"Credential    {name}: {'available' if present else 'missing'}")
@@ -1017,12 +1068,12 @@ def command_doctor(args):
         valid=(isinstance(policy,dict) and policy.get('version')==1 and policy.get('enabled') is True and
                policy.get('provider')=='typesafe' and policy.get('approved_data_scope')==COMPACTION_DATA_SCOPE)
         add('Jev compaction policy','pass' if valid else 'fail',str(compaction_policy_path(root)))
-        hooks_ready=claude_function_hooks_enabled()
-        add('Claude function hooks','pass' if hooks_ready else 'warn',
-            'enabled' if hooks_ready else 'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 is required')
-        plugin_ready=claude_compaction_installed()
-        add('Jev compaction plugin','pass' if plugin_ready else 'warn',
-            COMPACTION_PLUGIN_NAME if plugin_ready else 'install pending or Claude CLI unavailable')
+        hosts=state.get('compaction_hosts') or state.get('agents',[])
+        for agent in hosts:
+            ready=compaction_hook_installed(root,agent)
+            label='Jev compaction '+agent
+            detail=(COMPACTION_PLUGIN_NAME if agent=='claude-code' else str(compaction_hook_record(root,agent)))
+            add(label,'pass' if ready else 'warn',detail if ready else 'adapter missing/pending')
         key=state.get('compaction_api_key_env') or 'TYPESAFE_API_KEY'
         add('Jev compaction key','pass' if os.environ.get(key) else 'warn',key)
     if state.get('worker_config'):
