@@ -210,11 +210,18 @@ class GatewayCLITests(unittest.TestCase):
         worker=self.base/'cheap-worker-off.json'
         worker.write_text(json.dumps(dict(approved=True,adapter='command',
             argv=['worker-fixture'],timeout_seconds=5)))
-        code,text,err=self.setup_codex('--worker-config',str(worker),'--orchestration','off')
+        code,text,err=self.setup_codex('--worker-config',str(worker))
+        self.assertEqual(code,0,err)
+        previous=Path(gateway.load_state(self.project)['orchestrator_config'])
+        self.assertTrue(previous.is_file())
+
+        code,text,err=self.setup_codex('--orchestration','off')
         self.assertEqual(code,0,err)
         state=gateway.load_state(self.project)
         self.assertEqual(state['orchestration_preference'],'off')
         self.assertIsNone(state['orchestrator_config'])
+        self.assertFalse(previous.exists())
+
         code,text,err=self.setup_codex()
         self.assertEqual(code,0,err)
         self.assertIsNone(gateway.load_state(self.project)['orchestrator_config'])
