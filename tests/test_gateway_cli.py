@@ -291,11 +291,11 @@ class GatewayCLITests(unittest.TestCase):
     def test_rerun_updates_python_path_in_global_config(self):
         fake_a=str(self.base/'python-a.exe'); fake_b=str(self.base/'python-b.exe')
         with patch.object(gateway.sys,'executable',fake_a):
-            code,_,err=self.setup_codex(); self.assertEqual(code,0,err)
+            code,_,err=self.setup_codex('--compaction','off'); self.assertEqual(code,0,err)
         expected_a=str(Path(fake_a).resolve()).replace('\\','\\\\')
         self.assertIn(expected_a,(self.host/'.codex/config.toml').read_text())
         with patch.object(gateway.sys,'executable',fake_b):
-            code,_,err=self.setup_codex('--update'); self.assertEqual(code,0,err)
+            code,_,err=self.setup_codex('--compaction','off','--update'); self.assertEqual(code,0,err)
         text=(self.host/'.codex/config.toml').read_text()
         expected_b=str(Path(fake_b).resolve()).replace('\\','\\\\')
         self.assertIn(expected_b,text); self.assertNotIn(expected_a,text)
