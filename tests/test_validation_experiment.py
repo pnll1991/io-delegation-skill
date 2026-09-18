@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import tempfile
 import unittest
@@ -111,6 +112,39 @@ class ExperimentTests(unittest.TestCase):
         self.assertLessEqual(len(rows[0].get('stdout_tail','')),mod.VALIDATOR_TAIL_BYTES+32)
         self.assertEqual(len(rows[0]['stdout_sha256']),64)
         self.assertIn('bad',rows[0].get('stderr_tail',''))
+
+    def test_inactive_gateway_registration_advertises_zero_tools(self):
+        args=mod.inactive_codex_arguments()
+        settings={args[i+1].split('=',1)[0]:json.loads(args[i+1].split('=',1)[1])
+                  for i in range(0,len(args),2)}
+        self.assertEqual(settings['mcp_servers.io_context.enabled_tools'],['search','extract','query'])
+        command=[settings['mcp_servers.io_context.command'],*settings['mcp_servers.io_context.args']]
+        request=[
+            {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-06-18','capabilities':{},'clientInfo':{'name':'test','version':'1'}}},
+            {'jsonrpc':'2.0','method':'notifications/initialized'},
+            {'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}},
+        ]
+        payload=(''.join(json.dumps(x)+'\n' for x in request)).encode('utf-8')
+        cp=mod.run_process(command,payload=payload,timeout=5)
+        self.assertEqual(cp.returncode,0)
+        rows=[json.loads(line) for line in cp.stdout.splitlines()]
+        tools=next(row['result']['tools'] for row in rows if row.get('id')==2)
+        self.assertEqual(tools,[])
+
+    def test_codex_base_command_isolates_user_state_equally(self):
+        command=mod.codex_base_command(self.root,'workspace-write')
+        text=' '.join(map(str,command))
+        self.assertIn('--ephemeral',command)
+        self.assertIn('--ignore-user-config',command)
+        self.assertIn('--skip-git-repo-check',command)
+        self.assertEqual(command.count('--disable'),2)
+        self.assertIn('apps',command); self.assertIn('plugins',command)
+        self.assertIn('approval_policy=\"never\"',text)
+        self.assertIn('web_search=\"disabled\"',text)
+        self.assertIn('features.multi_agent=false',text)
+        self.assertIn('features.memories=false',text)
+        self.assertIn('features.skill_mcp_dependency_install=false',text)
+        self.assertIn('workspace-write',command)
 
     def test_run_conditions_are_explicit(self):
         principal={'cached_input_tokens':123}

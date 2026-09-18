@@ -224,6 +224,22 @@ def install_skill(worktree):
     shutil.copytree(ROOT / 'skills' / 'io-delegation', destination, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
 
 
+def inactive_codex_arguments():
+    bootstrap = SCRIPTS / 'context_bootstrap.py'
+    settings = dict(
+        command=sys.executable,
+        args=['-I', str(bootstrap.resolve())],
+        required=True,
+        enabled=True,
+        startup_timeout_sec=20,
+        tool_timeout_sec=185,
+        enabled_tools=['search', 'extract', 'query'],
+        env_vars=['CODEX_HOME'],
+    )
+    return [item for key, value in settings.items()
+            for item in ('-c', f'mcp_servers.io_context.{key}='+json.dumps(value, ensure_ascii=True))]
+
+
 def activation_state(task, arm):
     return {
         'allow_files': task.get('allow_files', []),
@@ -297,6 +313,22 @@ def run_conditions(principal, activation):
     }
 
 
+def codex_base_command(worktree, sandbox):
+    executable = shutil.which("codex")
+    if not executable:
+        raise ValueError("codex is required")
+    return [
+        executable, "exec", "--json", "--ephemeral", "--ignore-user-config",
+        "--disable", "apps", "--disable", "plugins", "--skip-git-repo-check",
+        "-C", str(worktree), "-s", sandbox,
+        "-c", "approval_policy=\"never\"",
+        "-c", "web_search=\"disabled\"",
+        "-c", "features.multi_agent=false",
+        "-c", "features.memories=false",
+        "-c", "features.skill_mcp_dependency_install=false",
+    ]
+
+
 def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out_root, keep_raw=False):
     repo = repos[task['repo']]
     run_id = safe_run_id(f"{ordinal:04d}-{task['id']}-{arm['name']}-r{repetition}")
@@ -323,10 +355,9 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
         else:
             activation = {'decision': 'bypass', 'reason': 'control_arm', 'signals': {}, 'principal_intent': False}
 
-        command = [
-            shutil.which('codex'), 'exec', '--json', '-C', str(worktree),
-            '-s', arm.get('sandbox', manifest.get('sandbox', 'workspace-write')),
-        ]
+        command = codex_base_command(
+            worktree, arm.get('sandbox', manifest.get('sandbox', 'workspace-write'))
+        )
         model = arm.get('model', manifest.get('model'))
         if model:
             command += ['-m', model]
@@ -339,22 +370,27 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
         prompt_parts = []
         if arm.get('prompt_prefix'):
             prompt_parts.append(str(arm['prompt_prefix']))
-        if activation['decision'] == 'enable':
+        if arm.get('gateway'):
+            # Production keeps the skill and host-level MCP registration installed even when
+            # activation bypasses a task/project. The bootstrap then advertises zero tools.
             install_skill(worktree)
-            command += context_mcp.codex_arguments(
-                worktree, audit,
-                prefixes=task.get('allow_prefixes', []),
-                files=task.get('allow_files', []),
-                config=worker_config_for_arm(arm, worker),
-                router_config=router_config_for_arm(arm, router),
-            )
+            if activation['decision'] == 'enable':
+                command += context_mcp.codex_arguments(
+                    worktree, audit,
+                    prefixes=task.get('allow_prefixes', []),
+                    files=task.get('allow_files', []),
+                    config=worker_config_for_arm(arm, worker),
+                    router_config=router_config_for_arm(arm, router),
+                )
+            else:
+                command += inactive_codex_arguments()
             prompt_parts.append(
-                'Context Gateway is enabled for this run. Use io_context only when it helps. '
+                'I/O Delegation is installed for this run. Use available io_context tools only when useful. '
                 'Keep security, architecture, debugging and editing reasoning in the principal agent.'
             )
         else:
             prompt_parts.append(
-                'Context Gateway is intentionally bypassed for this run. '
+                'Context Gateway is intentionally unavailable for this control run. '
                 'Do not invoke external workers or native subagents.'
             )
         prompt_parts.append(task['prompt'])
