@@ -30,8 +30,8 @@
   "thresholds": {
     "required_pairs": 15,
     "min_valid_pairs": 12,
-    "max_token_overhead_pct": 5.0,
-    "max_wall_overhead_pct": 10.0
+    "max_token_overhead_pct": 5,
+    "max_wall_overhead_pct": 10
   },
   "gates": {
     "complete_pairs": true,
@@ -43,7 +43,7 @@
     "principal_token_overhead": true,
     "wall_time_overhead": true
   },
-  "pass": true,
+  "pass": false,
   "evidence_meta": {
     "harness_commit": "c59e204be1ff4770d0f5215dc926ca7b21ed6659",
     "runs_sha256": "82720cc880ab46c4273bf0f68e84582021790e6bc61a770c2db79a0f6116704e",
@@ -51,6 +51,13 @@
     "sample": "3 held-out small controls x 2 arms x 5 repetitions",
     "jev": false,
     "worker": false,
-    "note": "Raw run records remain local; this committed artifact contains metadata/aggregate evidence only."
+    "note": "Raw run records remain local; this committed artifact contains metadata/aggregate evidence only.",
+    "invalidated": true
+  },
+  "historical_pass": true,
+  "invalidated": {
+    "at": "2026-09-18",
+    "reason": "Runner inherited user Codex configuration and did not pin the supported Windows sandbox fallback. Retained as historical data only; replacement isolated sample required.",
+    "replacement_required": true
   }
 }
