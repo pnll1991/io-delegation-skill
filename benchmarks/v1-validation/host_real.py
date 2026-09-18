@@ -26,8 +26,8 @@ def gateway_command(*args):
 
 def setup_command(host,project,worker):
     cmd=gateway_command('setup','--project',project,'--agent',HOST_AGENT[host],
-                        '--worker-config',worker,'--jev','off','--guard','off',
-                        '--activation','always','--no-doctor')
+                        '--worker-config',worker,'--jev','off','--orchestration','off',
+                        '--guard','off','--activation','always','--no-doctor')
     for name in FILES: cmd += ['--allow-file',name]
     return cmd
 
