@@ -281,6 +281,8 @@ export async function resolveProjectHookConfig(
   if (!raw || typeof raw !== 'object') throw new Error('invalid project compaction policy');
   const policy = raw as Record<string, unknown>;
   if (policy['version'] !== 1 || policy['enabled'] !== true) return null;
+  const hosts = policy['hosts'];
+  if (Array.isArray(hosts) && !hosts.includes('claude-code')) return null;
   if (policy['provider'] !== 'typesafe') throw new Error('unsupported compaction provider');
   if (policy['approved_data_scope'] !== APPROVED_DATA_SCOPE) {
     throw new Error('project compaction data scope is not explicitly approved');
