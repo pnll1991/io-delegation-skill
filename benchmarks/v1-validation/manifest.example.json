@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "seed": 20260917,
+  "repetitions": 1,
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "timeout_seconds": 600,
+  "router_config": "C:/outside-project/router.typesafe.json",
+  "worker_config": "C:/outside-project/worker.json",
+  "repositories": {
+    "example": {
+      "path": "C:/src/example-repo",
+      "commit": "HEAD"
+    }
+  },
+  "arms": [
+    {
+      "name": "control",
+      "gateway": false,
+      "jev": false,
+      "worker": false
+    },
+    {
+      "name": "gateway-local",
+      "gateway": true,
+      "jev": false,
+      "worker": false,
+      "activation": "auto"
+    },
+    {
+      "name": "gateway-jev",
+      "gateway": true,
+      "jev": true,
+      "worker": false,
+      "activation": "always"
+    },
+    {
+      "name": "gateway-jev-worker",
+      "gateway": true,
+      "jev": true,
+      "worker": true,
+      "activation": "always"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "example-targeted",
+      "family": "targeted",
+      "repo": "example",
+      "prompt": "Read src/config.py and write benchmark-output/example.json with the requested exact value.",
+      "task_hint": "read one focused config file",
+      "allow_files": ["src/config.py"],
+      "validator": [
+        ["python", "tests/validate_example.py", "--root", "."]
+      ],
+      "expected_route": "targeted_read"
+    }
+  ]
+}

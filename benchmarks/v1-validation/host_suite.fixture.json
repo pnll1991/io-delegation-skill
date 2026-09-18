@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "repo_id": "io-context-host-fixture-v1",
+  "commit": "fixture-v1",
+  "cases": [
+    {
+      "id": "deterministic-search",
+      "family": "small-control",
+      "expected_route": "deterministic",
+      "expected_json": {"matches": 1},
+      "prompt": "Use only io_context.search. Call it exactly once with paths [\"alpha.txt\"], needle \"TARGET_VALUE\", max_matches 5, window 32. Do not use built-in file, shell, web, or subagent tools. Return only JSON exactly shaped as {\"matches\": NUMBER}, where NUMBER is the count of search matches returned by the tool."
+    },
+    {
+      "id": "targeted-value",
+      "family": "targeted",
+      "expected_route": "targeted_read",
+      "expected_json": {"target_value": 17},
+      "prompt": "Use only io_context.query. Call it exactly once with selections [{\"path\":\"alpha.txt\",\"select\":{\"kind\":\"literal\",\"needle\":\"TARGET_VALUE\",\"window\":48,\"max_regions\":1}}], question \"What integer follows TARGET_VALUE in the selected evidence?\", operation \"factual\", search_results 1, known_symbols 1. Do not use built-in file, shell, web, or subagent tools. Return only JSON exactly shaped as {\"target_value\": NUMBER}."
+    },
+    {
+      "id": "principal-security",
+      "family": "principal",
+      "expected_route": "principal",
+      "expected_json": {"safe_flag": true},
+      "prompt": "Use only io_context.query. Call it exactly once with selections [{\"path\":\"alpha.txt\",\"select\":{\"kind\":\"literal\",\"needle\":\"SAFE_FLAG\",\"window\":48,\"max_regions\":1}}], question \"Security review: does SAFE_FLAG equal true in the selected evidence? Keep the security decision in the principal.\", operation \"security\", search_results 1, known_symbols 1. Do not use built-in file, shell, web, or subagent tools. Return only JSON exactly shaped as {\"safe_flag\": BOOLEAN}."
+    },
+    {
+      "id": "bulk-values",
+      "family": "multi-file-factual",
+      "expected_route": "bulk_read",
+      "expected_json": {"values": ["blue", "green", "red"]},
+      "prompt": "Use only io_context.query. Call it exactly once with selections [{\"path\":\"beta.txt\",\"select\":{\"kind\":\"literal\",\"needle\":\"COMMON\",\"window\":32,\"max_regions\":1}},{\"path\":\"gamma.txt\",\"select\":{\"kind\":\"literal\",\"needle\":\"COMMON\",\"window\":32,\"max_regions\":1}},{\"path\":\"delta.txt\",\"select\":{\"kind\":\"literal\",\"needle\":\"COMMON\",\"window\":32,\"max_regions\":1}}], question \"List the three COMMON values from the selected evidence, sorted alphabetically.\", operation \"factual\", search_results 3, known_symbols 1. Do not use built-in file, shell, web, or subagent tools. Return only JSON exactly shaped as {\"values\":[STRING,STRING,STRING]}."
+    }
+  ]
+}

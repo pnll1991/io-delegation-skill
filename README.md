@@ -2,79 +2,76 @@
 
 **English** | [Español](README.es.md)
 
-### Keep the reasoning. Delegate the noise.
+### Give coding agents the right context, not the whole repository.
 
 [![Offline tests](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml/badge.svg)](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python: optional](https://img.shields.io/badge/Python-3.10%2B%20optional-3776AB.svg)](docs/INSTALLATION.md)
+[![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](docs/INSTALLATION.md)
 
-**Claude Code · Codex · Cursor · any agent that can read Markdown**
+**Claude Code · Codex · Cursor**
 
-[The skill](skills/io-delegation/SKILL.md) · [Installation](docs/INSTALLATION.md) · [Read enforcement](#optional-read-enforcement) · [Benchmark](#benchmark) · [Adapters](skills/io-delegation/references/ADAPTERS.md)
-
-A portable Agent Skill that keeps large factual reads and predictable file generation out of the main agent's context when delegation is useful. The main agent retains architecture, debugging, sensitive decisions, verification and integration.
-
-**No required provider, subscription, MCP server, proprietary hook or agent-specific API.** Use the instructions alone, or add the optional standard-library Python runner and an explicitly approved worker. Version 0.2 adds optional pre-tool read gates without making host-specific hooks a requirement of the skill.
+I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits; optional TypeSafe Jev routing and semantic workers are used only when they add value.
 
 ```text
-                    task
-                     |
-              locate + classify
-                     |
-       +-------------+---------------+
-       |             |               |
- deterministic   factual read    repetitive file
- tool / range      worker            worker
-       |             |               |
-       |       facts + evidence   isolated candidate
-       +-------------+---------------+
-                     |
-            main agent verifies,
-          reasons, edits and integrates
+agent -> io_context -> search / extract / query
+                                  |
+                           local rules / Jev
+                            /       |       \
+                      targeted  principal  worker
 ```
+
+The gateway works without an external model. Jev and a semantic worker are optional. Source contents are not sent to Jev; it receives the task plus aggregate metadata.
 
 ## Quick start
 
-Clone the repository, or download it using GitHub's **Code > Download ZIP**:
+Clone the repository, then run one setup command from this repository:
 
 ```bash
 git clone https://github.com/pnll1991/io-delegation-skill.git
 cd io-delegation-skill
+
+# Windows
+io-delegation.cmd setup --project "D:\\path\\to\\project"
+
+# macOS / Linux
+./io-delegation setup --project "/path/to/project"
 ```
 
-Choose **one** installation command for an existing project:
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, enables Jev only when `TYPESAFE_API_KEY` is available, leaves the semantic worker off unless explicitly configured, keeps the read guard **off by default**, and runs `doctor`.
+
+Preview with zero writes, then inspect the installation at any time:
 
 ```bash
-# Claude Code
-python install.py --agent claude-code --project "/path/to/your/project"
-
-# Codex
-python install.py --agent codex --project "/path/to/your/project"
-
-# Cursor
-python install.py --agent cursor --project "/path/to/your/project"
+io-delegation setup --project . --dry-run
+io-delegation status --project /path/to/project
+io-delegation doctor --project /path/to/project
 ```
 
-Use `py -3` on Windows or `python3` where appropriate. The installer requires Python 3.10+, copies only the self-contained skill folder and refuses to overwrite an existing installation. Add `--dry-run` to preview the destination. Replace `--project "..."` with `--global` for a user-level installation. Existing 0.1 copies require a reviewed manual update; no user customization is silently overwritten.
+Project folders can be moved without changing their gateway identity. Rerun `setup` after a move or Python change to refresh metadata and host registration.
 
-| Agent | Project destination | Global destination |
-| --- | --- | --- |
-| Claude Code | `.claude/skills/io-delegation/` | `~/.claude/skills/io-delegation/` |
-| Codex | `.agents/skills/io-delegation/` | `~/.agents/skills/io-delegation/` |
-| Cursor | `.agents/skills/io-delegation/` | `~/.agents/skills/io-delegation/` |
+To configure specific hosts or behavior:
 
-Codex and Cursor share one installation. Do not run both commands against the same destination. Directory support is documented by [Claude Code](https://code.claude.com/docs/en/skills), [Codex](https://developers.openai.com/codex/skills) and [Cursor](https://cursor.com/docs/skills). Global installations apply to the local machine; remote/cloud agents need the skill available in their own environment.
+```bash
+io-delegation setup --project . --agent codex
+io-delegation setup --project . --agent all --jev on
+io-delegation setup --project . --worker-config /private/worker.json
+io-delegation setup --project . --guard enforce
+```
 
-### No Python? Copy the folder
+Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP with `${workspaceFolder}`, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
 
-Copy the complete `skills/io-delegation/` directory to the appropriate destination above. The instructions work without Python; the installers, optional runner and optional read gate need Python.
 
-### Ask your agent to use it
 
-> Apply the io-delegation skill to this task. Locate relevant files first. Use deterministic tools or targeted reads whenever they are sufficient. Delegate only to an available, approved worker with separate context. Verify evidence before making decisions. Without a worker, continue with targeted reading.
+Lifecycle commands are surgical and preserve unrelated settings:
 
-For an agent without skill discovery, give it the actual path to `SKILL.md` and ask it to read that file. The core instructions and most reference guides are in Spanish. See [activation, updates and coexistence](docs/INSTALLATION.md).
+```bash
+io-delegation remove --project . --dry-run
+io-delegation remove --project .
+io-delegation backups
+io-delegation restore BACKUP_ID --dry-run
+```
 
+Restore refuses to overwrite a config changed after I/O Delegation touched it unless `--force` is explicitly reviewed.
 ## Optional read enforcement
 
 Version **0.2.0** adds the third layer that instructions alone cannot provide: a pre-tool gate. The common Python engine checks source-text budgets locally; small host adapters translate decisions into the documented Claude Code, Codex and Cursor hook formats.
@@ -85,12 +82,12 @@ Version **0.2.0** adds the third layer that instructions alone cannot provide: a
 | Observe | Evaluate requests and record decision metadata without blocking budget violations. |
 | Enforce | Deny covered reads over budget and suggest search, a bounded range or an approved worker. |
 
-After installing the skill, explicitly enable the optional project-local integration:
+The V1.1 `io-delegation setup` command leaves this integration **off by default**. Enable `observe` or `enforce` explicitly. For the manual/legacy path, register it directly:
 
 ```bash
 # Choose your agent: claude-code, codex, or cursor
-python install_hooks.py --agent claude-code --project "/path/to/your/project" --dry-run
-python install_hooks.py --agent claude-code --project "/path/to/your/project"
+python install_hooks.py --agent claude-code --project "/path/to/your/project" --mode observe --dry-run
+python install_hooks.py --agent claude-code --project "/path/to/your/project" --mode observe
 ```
 
 Use `--python python3` when that is the executable available to the host. Unlike the shared skill folder, **each host needs its own hook registration**. The default skill installer does not enable hooks.
@@ -103,7 +100,7 @@ Use `--python python3` when that is the executable available to the host. Unlike
 
 The initial policy allows up to **350 source lines and 64,000 bytes** per inspected read/recognized shell batch. It checks minified files by bytes, verifies requested ranges, and does not treat an offset alone as a size exemption. Recognized literal shell readers include `cat`, `head`, `tail`, `Get-Content` and bounded `sed`. A denial never starts a model or changes providers: targeted reading works without a worker.
 
-The installer preserves other settings and hooks, backs up changed configuration, performs a local runtime preflight, supports `--dry-run` and `--remove`, and refuses silent replacement of a modified runtime. Policy lives in `.io-delegation-hooks/policy.json`; set `mode` to `observe` to audit instead of blocking budget violations. Installation uses machine-local paths: reinstall after moving the project. Normal host trust and approvals remain required.
+The installer preserves other settings and hooks, backs up changed configuration, performs a local runtime preflight, supports `--dry-run` and `--remove`, and refuses silent replacement of a modified runtime. Policy lives in `.io-delegation-hooks/policy.json`; set `mode` to `observe` to audit instead of blocking budget violations. The hook runtime uses machine-local paths, while the Context Gateway project identity survives project moves. Rerun `setup` after moving a project only to refresh stored metadata or after changing Python. Normal host trust and approvals remain required.
 
 **Coverage is deliberately bounded.** Arbitrary scripts, unrecognized/MCP tools, search output, editor attachments and context paths that do not fire the registered hook are not controlled. Pipelines are conservative; this is not a general shell interpreter, security sandbox or session-wide token cap. It does not enforce code generation. An installed hook is not proof that a specific client invoked it: the installer reports `host_verified: false` until a real-host test is performed.
 
@@ -209,4 +206,4 @@ Inspired by the Spotify Engineering article and the `shunt` design, adapted into
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for changes and [SECURITY.md](SECURITY.md) for trust boundaries. The runner and read gate are not sandboxes; file-name filtering is not comprehensive secret detection.
 
-[MIT License](LICENSE) · Version 0.2.0 · Maintained in [pnll1991/io-delegation-skill](https://github.com/pnll1991/io-delegation-skill)
+[MIT License](LICENSE) · Version 1.0.0-beta · Maintained in [pnll1991/io-delegation-skill](https://github.com/pnll1991/io-delegation-skill)

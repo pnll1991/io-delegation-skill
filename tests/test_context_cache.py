@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skills/io-delegation/scripts'))
 from context_mcp import ContextService
 from context_cache import ResultCache
-from test_context_semantic import reply
+from test_context_semantic import reply, internal_semantic
 
 
 class CacheTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class CacheTests(unittest.TestCase):
         self.args=dict(selections=[dict(path='a.txt',select=dict(kind='lines',start=1,end=1))],question='What value?')
 
     def semantic(self,service=None):
-        return json.loads((service or self.service).call('semantic_query',self.args)['content'][0]['text'])
+        return internal_semantic(service or self.service,self.args)
 
     def test_repeat_exact_no_new_dispatch_or_worker_tokens(self):
         with patch('io_delegate.invoke',side_effect=reply) as invoke:

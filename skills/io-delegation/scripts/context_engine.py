@@ -15,11 +15,11 @@ from worker_runtime import Journal, TransportError, normalize_usage, usage_compl
 
 def safe_config(path, root):
     raw_path = Path(path).absolute()
-    for component in (raw_path, *raw_path.parents):
-        info = component.lstat()
-        if component.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
-            raise ValueError('Worker configuration cannot contain symlinks or reparse points')
+    info = raw_path.lstat()
+    if raw_path.is_symlink() or getattr(info, 'st_file_attributes', 0) & 0x400:
+        raise ValueError('Worker configuration itself cannot be a symlink or reparse point')
     path = raw_path.resolve(strict=True)
+    root = Path(root).resolve(strict=True)
     if root == path or root in path.parents:
         raise ValueError('Approved configuration must be outside project')
     cfg = delegate.load_config(str(path))

@@ -70,7 +70,7 @@ class CLIIntegration(unittest.TestCase):
   ab.git(repo,'init');ab.git(repo,'add','sample.py');ab.git(repo,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-m','base')
   smoke_dir=self.root/'smoke';smoke_dir.mkdir();self.assertTrue(sw.smoke(self.cfg,smoke_dir)['ok'])
   checker=self.root/'check.py';checker.write_text("import json,pathlib;assert json.loads(pathlib.Path('benchmark-output/result.json').read_text())=={'answer':7}")
-  m=dict(repo=str(repo),repetitions=1,strategies=[dict(name='baseline',model='test-model'),dict(name='skill-worker-required',model='test-model',worker_mode='required',worker_config=str(self.cfg),worker_receipt=str(smoke_dir/'worker-smoke.json'),setup_commands=[['{python}',str(ROOT/'install.py'),'--agent','codex','--project','{worktree}']])],tasks=[dict(id='fixture',user_prompt='Create benchmark-output/result.json with answer=7.',acceptance=[[sys.executable,str(checker)]],regression=[[sys.executable,str(checker)]],capture_paths=['benchmark-output/result.json'])])
+  m=dict(repo=str(repo),repetitions=1,strategies=[dict(name='baseline',model='test-model'),dict(name='skill-worker-required',model='test-model',worker_mode='required',worker_transport='shell',worker_config=str(self.cfg),worker_receipt=str(smoke_dir/'worker-smoke.json'),setup_commands=[['{python}',str(ROOT/'install.py'),'--agent','codex','--project','{worktree}']])],tasks=[dict(id='fixture',user_prompt='Create benchmark-output/result.json with answer=7.',acceptance=[[sys.executable,str(checker)]],regression=[[sys.executable,str(checker)]],capture_paths=['benchmark-output/result.json'])])
   manifest=self.root/'manifest.json';ab.write_json(manifest,m)
   with contextlib.redirect_stdout(io.StringIO()):self.assertEqual(ab.main([str(manifest),'--output',str(self.root/'results')]),0)
   rows=ab.read_json(self.root/'results/runs.json');r=next(x for x in rows if 'worker' in x['strategy'])
@@ -83,6 +83,6 @@ class CLIIntegration(unittest.TestCase):
   repo=self.root/'target';repo.mkdir();ab.git(repo,'init');ab.git(repo,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','--allow-empty','-m','base')
   receipt=self.root/'receipt.json';ab.write_json(receipt,dict(ok=True,config_sha256='stale',engine_sha256='stale'))
   with self.assertRaisesRegex(ValueError,'stale'):
-   ab.prepare(dict(repo=str(repo)),self.root/'manifest.json',[dict(name='worker',worker_mode='required',worker_config=str(self.cfg),worker_receipt=str(receipt))],[dict(id='x',user_prompt='x',acceptance=['true'],regression=['true'])])
+   ab.prepare(dict(repo=str(repo)),self.root/'manifest.json',[dict(name='worker',worker_mode='required',worker_transport='mcp',worker_config=str(self.cfg),worker_receipt=str(receipt),worker_boundary_receipt=str(receipt))],[dict(id='x',user_prompt='x',acceptance=['true'],regression=['true'])])
 
 if __name__=='__main__':unittest.main()

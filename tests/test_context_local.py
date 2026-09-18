@@ -143,7 +143,7 @@ class LocalTests(unittest.TestCase):
         for value in ('Uno','page.html','<title>'): self.assertNotIn(value,log)
 
     def test_tools_only_local_when_unconfigured(self):
-        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract'])
+        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract','query'])
 
     def test_tool_schema_guides_valid_projection_shapes(self):
         extract_tool=next(t for t in tools(self.service) if t['name']=='extract')

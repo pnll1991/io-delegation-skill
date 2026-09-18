@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "seed": 20260919,
+  "repetitions": 5,
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "medium",
+  "timeout_seconds": 600,
+  "repositories": {
+    "camara": {"path": "${CAMARA_REPO}", "commit": "02f124a6938a4e8864dffc98fb12253f55267d75"},
+    "kuatrometric": {"path": "${KUATROMETRIC_REPO}", "commit": "943f27329d850ff7af3f3e336fa0c6503033d8f4"},
+    "steroid": {"path": "${STEROID_REPO}", "commit": "0fcbffd1660668062156600a0098cc0a9927fa97"}
+  },
+  "arms": [
+    {"name": "gate-auto", "gateway": true, "jev": false, "worker": false, "activation": "auto"},
+    {"name": "gate-always", "gateway": true, "jev": false, "worker": false, "activation": "always"}
+  ],
+  "tasks": [
+    {
+      "id": "activation-camara-name",
+      "repo": "camara",
+      "family": "small-control",
+      "task_hint": "single-file exact package name",
+      "allow_files": ["package.json"],
+      "prompt": "Create only benchmark-output/activation-camara-name.json from package.json. Return JSON exactly {\"fields\":{\"name\":VALUE}}. Do not modify existing files or inspect unrelated files.",
+      "validator": [["{python}", "{validation_root}/validators.py", "--root", ".", "--output", "benchmark-output/activation-camara-name.json", "--mode", "package-fields", "--field", "name"]]
+    },
+    {
+      "id": "activation-steroid-description",
+      "repo": "steroid",
+      "family": "small-control",
+      "task_hint": "single-file exact package description",
+      "allow_files": ["package.json"],
+      "prompt": "Create only benchmark-output/activation-steroid-description.json from package.json. Return JSON exactly {\"fields\":{\"description\":VALUE}}. Do not modify existing files or inspect unrelated files.",
+      "validator": [["{python}", "{validation_root}/validators.py", "--root", ".", "--output", "benchmark-output/activation-steroid-description.json", "--mode", "package-fields", "--field", "description"]]
+    },
+    {
+      "id": "activation-kuatrometric-port",
+      "repo": "kuatrometric",
+      "family": "small-control",
+      "task_hint": "single-file literal PORT count",
+      "allow_files": ["server.js"],
+      "prompt": "Create only benchmark-output/activation-kuatrometric-port.json from server.js. Return JSON exactly with keys literal, files, file_count, occurrences. literal must be \"PORT\"; files must be [{\"path\":\"server.js\",\"occurrences\":COUNT}]. Do not modify existing files or inspect unrelated files.",
+      "validator": [["{python}", "{validation_root}/validators.py", "--root", ".", "--output", "benchmark-output/activation-kuatrometric-port.json", "--mode", "literal-files", "--literal", "PORT", "--ext", ".js"]]
+    }
+  ]
+}

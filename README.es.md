@@ -2,47 +2,69 @@
 
 [English](README.md) | **Español**
 
-### Menos contexto innecesario. Más atención a lo que importa
+### Dale al agente el contexto correcto, no todo el repositorio
 
 [![Pruebas offline](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml/badge.svg)](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml)
 
-[Skill](skills/io-delegation/SKILL.md) · [Instalación](docs/INSTALLATION.md) · [Control de lecturas](#control-opcional-de-lecturas) · [Benchmark](#benchmark) · [Adaptadores](skills/io-delegation/references/ADAPTERS.md)
+**Claude Code · Codex · Cursor**
 
-Una skill portable para separar exploración, trabajo repetitivo y decisiones de ingeniería. Funciona como instrucciones para **Claude Code, Codex, Cursor y otros agentes que lean Markdown**. Incluye un ejecutor opcional para auxiliares locales o remotos aprobados.
-
-El principal conserva arquitectura, depuración, decisiones sensibles, edición exacta y verificación. Una búsqueda o una lectura corta tienen prioridad sobre delegar por rutina. La versión 0.2 agrega hooks opcionales para controlar lecturas sin convertirlos en un requisito del núcleo.
+I/O Delegation es un **context gateway** para agentes de código. Expone tres herramientas MCP principales: `search`, `extract` y `query`. El agente principal conserva depuración, arquitectura, seguridad y ediciones finales; TypeSafe Jev y el worker semántico son opcionales.
 
 ```text
-Localizar → clasificar → herramienta, lectura dirigida o auxiliar
-          → verificar evidencia → razonar, editar e integrar
+agente -> io_context -> search / extract / query
+                                     |
+                              reglas / Jev
+                              /    |     \
+                         dirigida principal worker
 ```
 
-## Instalar
+Funciona sin un modelo externo. Jev recibe la tarea y metadatos agregados, no el contenido del código ni nombres de archivos.
+
+## Instalación rápida
 
 ```bash
 git clone https://github.com/pnll1991/io-delegation-skill.git
 cd io-delegation-skill
+
+# Windows
+io-delegation.cmd setup --project "D:\\ruta\\al\\proyecto"
+
+# macOS / Linux
+./io-delegation setup --project "/ruta/al/proyecto"
 ```
 
-Elegí el comando de tu agente y reemplazá la ruta por un proyecto existente:
+`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, habilita Jev si `TYPESAFE_API_KEY` existe, deja el worker apagado salvo configuración explícita, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
 
 ```bash
-python install.py --agent claude-code --project "RUTA_DEL_PROYECTO"
-python install.py --agent codex --project "RUTA_DEL_PROYECTO"
-python install.py --agent cursor --project "RUTA_DEL_PROYECTO"
+io-delegation setup --project . --dry-run
+io-delegation status --project .
+io-delegation doctor --project .
 ```
 
-No ejecutes los tres por rutina: Codex y Cursor comparten `.agents/skills/io-delegation/`. Claude Code usa `.claude/skills/io-delegation/`. El instalador requiere Python 3.10+, copia la carpeta completa y no sobrescribe instalaciones existentes. No modifica reglas, permisos, modelos ni configuraciones del agente. Una copia instalada de 0.1 requiere una actualización manual revisada, conservando tus personalizaciones.
+Los proyectos se pueden mover sin perder su identidad. Volvé a ejecutar `setup` después de moverlos o cambiar Python para refrescar metadatos y registro del host.
 
-Para instalar a nivel usuario, reemplazá `--project "..."` por `--global`. Para simular, añadí `--dry-run`. En Windows podés usar `py -3`; en otros entornos, `python3`.
+Opciones comunes:
 
-Sin Python, copiá manualmente la carpeta completa `skills/io-delegation/` al destino correspondiente. Las instrucciones no necesitan Python ni un segundo modelo; los instaladores, el ejecutor y los hooks opcionales sí requieren Python. Las instalaciones globales son locales a esa máquina; un agente remoto necesita su propia copia accesible.
+```bash
+io-delegation setup --project . --agent codex
+io-delegation setup --project . --agent all --jev on
+io-delegation setup --project . --worker-config /ruta/privada/worker.json
+io-delegation setup --project . --guard enforce
+```
 
-## Usar
+Las credenciales reales no se escriben en el proyecto: la configuración MCP referencia variables de entorno. Codex usa configuración administrada a nivel usuario, Cursor un MCP global con `${workspaceFolder}` y Claude Code scope `user` cuando su CLI está disponible. Ver [diseño V1](docs/PRODUCT_V1.md) e [instalación V1](docs/INSTALLATION_V1.md). El flujo manual anterior (`install.py`, runner y herramientas de compatibilidad) sigue disponible.
 
-> Aplicá la skill io-delegation a esta tarea. Localizá primero los archivos relevantes. Priorizá herramientas deterministas y lecturas dirigidas. Delegá solo a un auxiliar disponible, aprobado y con contexto separado. Verificá evidencia antes de decidir. Sin auxiliar, continuá con lectura selectiva.
 
-Para un agente sin descubrimiento de skills, indicá la ruta real a `SKILL.md` y pedile que lo lea. Consultá [activación y convivencia](docs/INSTALLATION.md).
+## Ciclo de vida
+
+```bash
+io-delegation remove --project . --dry-run
+io-delegation remove --project .
+io-delegation backups
+io-delegation restore ID --dry-run
+```
+
+La eliminación conserva settings ajenos y skills modificadas. Restore se detiene si el archivo cambió después, salvo `--force` revisado explícitamente.
 
 ## Control opcional de lecturas
 
@@ -54,12 +76,12 @@ La versión **0.2.0** incorpora la capa de control anterior a la herramienta. Un
 | Observación | Evalúa las lecturas y emite metadatos, pero no bloquea excesos de presupuesto. |
 | Bloqueo | Rechaza lecturas cubiertas que exceden el presupuesto y propone alternativas. |
 
-Después de instalar la skill, activá explícitamente la integración para el proyecto:
+El setup V1.1 deja esta integración **apagada por defecto**. `observe` y `enforce` son opt-in. Para el flujo manual anterior:
 
 ```bash
 # Elegí claude-code, codex o cursor
-python install_hooks.py --agent claude-code --project "RUTA_DEL_PROYECTO" --dry-run
-python install_hooks.py --agent claude-code --project "RUTA_DEL_PROYECTO"
+python install_hooks.py --agent claude-code --project "RUTA_DEL_PROYECTO" --mode observe --dry-run
+python install_hooks.py --agent claude-code --project "RUTA_DEL_PROYECTO" --mode observe
 ```
 
 Agregá `--python python3` si ese es el ejecutable disponible para tu agente. **Cada agente necesita su propio registro de hooks**, aunque Codex y Cursor compartan la carpeta de la skill. El instalador normal no activa hooks.
@@ -74,7 +96,7 @@ El presupuesto inicial permite hasta **350 líneas de origen y 64.000 bytes** po
 
 Ante un bloqueo, propone buscar símbolos, leer un rango o usar un auxiliar ya aprobado cuando convenga. **No inicia modelos ni cambia proveedores por su cuenta.** Sin auxiliar, sigue disponible la lectura dirigida.
 
-El instalador conserva los hooks y permisos existentes, respalda la configuración que modifica, comprueba el ejecutor local y permite `--dry-run` y `--remove`. No reemplaza silenciosamente un ejecutor modificado. La política está en `.io-delegation-hooks/policy.json`; `mode: "observe"` registra decisiones sin bloquear excesos. Los comandos usan rutas locales: hay que reinstalar al mover el proyecto o cambiar de máquina. Siguen siendo necesarias la confianza y aprobación normales del agente.
+El instalador conserva los hooks y permisos existentes, respalda la configuración que modifica, comprueba el ejecutor local y permite `--dry-run` y `--remove`. No reemplaza silenciosamente un ejecutor modificado. La política está en `.io-delegation-hooks/policy.json`; `mode: "observe"` registra decisiones sin bloquear excesos. El runtime de hooks usa rutas locales, mientras que la identidad del Context Gateway sobrevive al mover el proyecto. Volvé a ejecutar `setup` tras moverlo sólo para refrescar metadata o al cambiar Python. Siguen siendo necesarias la confianza y aprobación normales del agente.
 
 Para quitar solo el registro de esta integración, conservando los demás:
 
@@ -148,4 +170,4 @@ Inspirada en Spotify Engineering y `shunt`, con contratos y controles propios. [
 
 No promete un porcentaje fijo de ahorro: hay que medir principal, auxiliar, latencia y retrabajo. Leer [VALIDATION.md](skills/io-delegation/references/VALIDATION.md) y [SECURITY.md](SECURITY.md). El ejecutor y el control de lecturas no son sandboxes.
 
-[MIT](LICENSE) · Versión 0.2.0 · [Contribuir](CONTRIBUTING.md)
+[MIT](LICENSE) · Versión 1.0.0-beta · [Contribuir](CONTRIBUTING.md)

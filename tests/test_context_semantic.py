@@ -1,4 +1,4 @@
-import json
+﻿import json
 from pathlib import Path
 import sys
 import tempfile
@@ -22,6 +22,15 @@ def reply(job, cfg, root, record):
     return json.dumps(obj),dict(usage=usage)
 
 
+def internal_semantic(service,args):
+    try:
+        result,_metrics=service.engine.run(args)
+        return result
+    except (OSError,ValueError,TypeError,KeyError,DelegateError) as exc:
+        reason=str(exc) if type(exc) is ValueError or isinstance(exc,DelegateError) else type(exc).__name__
+        return dict(status='error',reason=reason,model_calls=0,
+                    action='Stop on transport error. Do not retry or change provider/permissions automatically.')
+
 class SemanticTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
@@ -33,10 +42,11 @@ class SemanticTests(unittest.TestCase):
         self.args=dict(selections=[dict(path='a.txt',select=dict(kind='lines',start=1,end=1))],question='What value?')
 
     def run_call(self):
-        return json.loads(self.service.call('semantic_query',self.args)['content'][0]['text'])
+        return internal_semantic(self.service,self.args)
 
-    def test_semantic_advertised_only_approved(self):
-        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract','semantic_query'])
+    def test_semantic_engine_is_internal_and_requires_approval(self):
+        self.assertEqual([t['name'] for t in tools(self.service)],['search','extract','query'])
+        self.assertNotIn('semantic_query',self.service.tool_names())
         self.config.write_text('{"approved":false}')
         with self.assertRaises(DelegateError):ContextService(self.root,self.audit,files=['a.txt'],config=self.config)
 
