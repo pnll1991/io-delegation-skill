@@ -132,7 +132,8 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual(tools,[])
 
     def test_codex_base_command_isolates_user_state_equally(self):
-        command=mod.codex_base_command(self.root,'workspace-write')
+        with patch('shutil.which',return_value='/synthetic/codex'):
+            command=mod.codex_base_command(self.root,'workspace-write')
         text=' '.join(map(str,command))
         self.assertIn('--ephemeral',command)
         self.assertIn('--ignore-user-config',command)
