@@ -446,14 +446,9 @@ def env_names_for_state(state):
         cfg=decision_router.load_config(state['router_config'])
         names.append(cfg['api_key_env'])
     if state.get('orchestrator_config'):
-        try:
-            sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import context_orchestrator
-            cfg=context_orchestrator.load_config(state['orchestrator_config']); key=cfg['api_key_env']
-            add('Jev compute orchestration','pass',state['orchestrator_config'])
-            add('Jev compute key','pass' if os.environ.get(key) else 'warn',key)
-            add('cheap-first worker','pass' if state.get('worker_config') else 'fail',
-                state.get('worker_config') or 'missing')
-        except Exception as exc: add('Jev compute orchestration','fail',str(exc))
+        import context_orchestrator
+        cfg=context_orchestrator.load_config(state['orchestrator_config'])
+        names.append(cfg['api_key_env'])
     if state.get('compaction_mode') == 'on':
         name=state.get('compaction_api_key_env','TYPESAFE_API_KEY')
         if isinstance(name,str) and name: names.append(name)
@@ -1225,6 +1220,16 @@ def command_doctor(args):
             cfg=decision_router.load_config(state['router_config']); key=cfg['api_key_env']
             add('Jev config','pass',state['router_config']); add('Jev key','pass' if os.environ.get(key) else 'warn',key)
         except Exception as exc: add('Jev config','fail',str(exc))
+    if state.get('orchestrator_config'):
+        try:
+            sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import context_orchestrator
+            cfg=context_orchestrator.load_config(state['orchestrator_config']); key=cfg['api_key_env']
+            add('Jev compute orchestration','pass',state['orchestrator_config'])
+            add('Jev compute key','pass' if os.environ.get(key) else 'warn',key)
+            add('cheap-first worker','pass' if state.get('worker_config') else 'fail',
+                state.get('worker_config') or 'missing')
+        except Exception as exc:
+            add('Jev compute orchestration','fail',str(exc))
     if state.get('compaction_mode') == 'on':
         policy=read_json(compaction_policy_path(root),{})
         valid=(isinstance(policy,dict) and policy.get('version')==1 and policy.get('enabled') is True and
