@@ -71,6 +71,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
     def test_activation_artifact_is_required_and_fail_closed(self):
         good={'schema':'io-context-activation-evidence/v1','pass':True,'pairs':15,
+              'isolation_contract':{'version':'codex-isolated-v2','verified':True},
               'false_enable_run_ids':[],'unexpected_call_run_ids':[],'context_leak_run_ids':[]}
         self.assertTrue(mod.activation_gate(good)['pass'])
         bad=dict(good); bad['pass']=False; bad['false_enable_run_ids']=['x']
@@ -78,6 +79,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.assertFalse(gate['pass']); self.assertEqual(gate['false_enables'],1)
         wrong=dict(good); wrong['schema']='unknown'
         self.assertFalse(mod.activation_gate(wrong)['pass'])
+        legacy=dict(good); legacy.pop('isolation_contract')
+        self.assertFalse(mod.activation_gate(legacy)['pass'])
 
     def test_host_parity_gate_requires_lifecycle_complete(self):
         good={'critical_deviations':0,'lifecycle_complete':True}
@@ -107,6 +110,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 for item in rows: record.append(path,item)
             (root/'activation.json').write_text(json.dumps({
                 'schema':'io-context-activation-evidence/v1','pass':True,'pairs':15,
+                'isolation_contract':{'version':'codex-isolated-v2','verified':True},
                 'false_enable_run_ids':[],'unexpected_call_run_ids':[],'context_leak_run_ids':[]}),encoding='utf-8')
             (root/'parity.json').write_text(json.dumps({'schema':'io-context-host-parity/v1','critical_deviations':0,'lifecycle_complete':True}),encoding='utf-8')
             (root/'security.json').write_text(json.dumps({'schema':'io-context-security-audit/v1','clean':False,'secret_hits':[{'env':'X'}],'forbidden_event_fields':[],'malformed_jsonl':[]}),encoding='utf-8')
