@@ -166,6 +166,26 @@ python benchmarks/run.py --output benchmark-output
 
 Ejecutar en main actual cuenta la skill actual. Para reproducir las cifras históricas, usá el `executed_commit` del informe, como explica la guía. El piloto de modelos se ejecuta manualmente; el conteo liviano corre ante cambios relevantes. Sus dependencias no son necesarias para instalar ni usar la skill.
 
+
+## Compactación de contexto guiada por Jev (opcional)
+
+Claude Code puede usar una adaptación por proyecto de
+`tamaratran/fast-jev-compaction`. Conserva literalmente el texto de
+usuario/asistente y usa Jev para decidir si tool calls/resultados antiguos se
+conservan, se truncan o se eliminan. Se activa de forma explícita:
+
+```bash
+io-delegation setup --project . --agent claude-code --compaction on
+```
+
+Esto está separado deliberadamente de `--jev on`. El router normal envía la
+tarea y metadatos agregados; la compactación tiene un límite de datos más amplio:
+envía texto de conversación y entradas de tools a TypeSafe, mientras los outputs
+completos se reemplazan por notas cortas en el estado que ve Jev. La aprobación
+queda en una política local ignorada por git, la API key permanece en la variable
+de entorno y el plugin global queda inactivo fuera de proyectos opt-in. Ante
+errores o reducción insuficiente se usa la compactación nativa de Claude Code.
+
 ## Qué incluye
 
 La carpeta instalable contiene la skill, el ejecutor de auxiliares, el motor de control, ejemplos y referencias de flujo, adaptadores, validación y fuentes. El repositorio agrega instaladores separados para skill y hooks, pruebas, CI, documentación, licencia MIT y guías de contribución.

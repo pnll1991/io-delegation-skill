@@ -110,6 +110,27 @@ The installer preserves other settings and hooks, backs up changed configuration
 
 [Policy, supported forms, removal and real-host verification](skills/io-delegation/references/ENFORCEMENT.md) · [Hook tests](tests/test_read_guard.py)
 
+
+## Jev-guided context compaction (optional)
+
+Claude Code can use a project-scoped adaptation of
+`tamaratran/fast-jev-compaction`. It keeps user/assistant text verbatim and
+asks Jev whether older tool calls/results should stay, be truncated, or be
+removed. Enable it explicitly:
+
+```bash
+io-delegation setup --project . --agent claude-code --compaction on
+```
+
+This is intentionally separate from `--jev on`. The normal router sends task
+text plus aggregate corpus metadata; compaction has a broader data boundary and
+sends conversation text plus tool inputs to TypeSafe (full tool results are
+represented by short metadata notes in Jev state). The project-local ignored
+policy records that approval, the API key remains in `TYPESAFE_API_KEY` (or
+the `--typesafe-env` variable), and the globally installed Claude plugin stays
+inert outside projects with that policy. If Jev fails or the reduction is too
+small, Claude Code falls back to its built-in compaction.
+
 ## What it does
 
 | Situation | Preferred route |
