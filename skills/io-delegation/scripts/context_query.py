@@ -324,7 +324,7 @@ class QueryEngine:
             use_model_policy = bool(
                 compute_result and (
                     self.semantic.cfg.get('model_policy') is not None
-                    or adapter in ('codex-cli', 'cursor-cli', 'host-cli')
+                    or adapter == 'host-cli'
                 )
             )
             if use_model_policy:
