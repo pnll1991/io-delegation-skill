@@ -12,6 +12,7 @@ from pathlib import Path
 import time
 
 import decision_router as jev
+import model_policy
 
 TIERS = ('T0', 'T1', 'T2')
 SENSITIVE_OPERATIONS = {'debugging', 'architecture', 'security', 'editing', 'generation'}
@@ -157,54 +158,27 @@ def accepted_worker_result(result):
 
 
 def cheap_worker_config(cfg, max_output_tokens=None):
-    """Return an approved cheap worker profile without changing provider/adapter."""
-    derived = dict(cfg)
-    profiles = cfg.get('compute_profiles', {})
-    if profiles is None:
-        profiles = {}
-    if not isinstance(profiles, dict) or set(profiles) - {'cheap'}:
-        raise ValueError('compute_profiles may contain only a cheap profile')
-    profile = profiles.get('cheap')
-    label = 'base-worker'
-    if profile is not None:
-        if not isinstance(profile, dict):
-            raise ValueError('compute_profiles.cheap must be an object')
-        allowed = {'model', 'reasoning_effort', 'max_output_tokens'}
-        if set(profile) - allowed:
-            raise ValueError('Unknown cheap worker profile option')
-        adapter = cfg.get('adapter')
-        if adapter == 'command':
-            raise ValueError('Opaque command workers cannot override compute profiles')
-        model = profile.get('model', cfg.get('model'))
-        if not isinstance(model, str) or not model.strip():
-            raise ValueError('Cheap worker profile requires a valid model')
-        derived['model'] = model
-        if adapter == 'codex-cli':
-            effort = profile.get('reasoning_effort', cfg.get('reasoning_effort', 'low'))
-            if effort not in ('low', 'medium', 'high'):
-                raise ValueError('Cheap worker reasoning_effort must be low, medium or high')
-            if 'max_output_tokens' in profile:
-                raise ValueError('Codex CLI does not expose a hard per-call output token cap')
-            derived['reasoning_effort'] = effort
-        elif adapter == 'chat-completions':
-            if 'reasoning_effort' in profile:
-                raise ValueError('reasoning_effort is not portable for chat-completions workers')
-            if 'max_output_tokens' in profile:
-                value = profile['max_output_tokens']
-                if type(value) is not int or not 64 <= value <= 4096:
-                    raise ValueError('Cheap max_output_tokens must be between 64 and 4096')
-                derived['reader_max_tokens'] = value
-        label = 'cheap'
-    if cfg.get('adapter') == 'chat-completions' and max_output_tokens is not None:
-        derived['reader_max_tokens'] = min(
-            int(derived.get('reader_max_tokens', 1600)), int(max_output_tokens)
-        )
-    return derived, {
-        'profile': label,
-        'model': derived.get('model'),
-        'reasoning_effort': derived.get('reasoning_effort'),
-        'output_token_cap_supported': cfg.get('adapter') == 'chat-completions',
+    """Backward-compatible adapter for the pre-model_policy single cheap profile."""
+    profiles = cfg.get('compute_profiles', {}) or {}
+    profile = profiles.get('cheap') if isinstance(profiles, dict) else None
+    profile = profile if isinstance(profile, dict) else {}
+    model = profile.get('model', cfg.get('model'))
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError('Cheap worker profile requires a valid model')
+    effort = profile.get('reasoning_effort', cfg.get('reasoning_effort', 'medium'))
+    legacy = {
+        'id': 'cheap' if profile else 'base-worker',
+        'model': model,
+        'effort': effort,
+        'capability': .5,
+        'cost_index': .5,
+        'source': 'legacy-compute-profile',
     }
+    if 'max_output_tokens' in profile:
+        legacy['max_output_tokens'] = profile['max_output_tokens']
+    host = 'codex' if cfg.get('adapter') == 'codex-cli' else (
+        'cursor' if cfg.get('adapter') == 'cursor-cli' else None)
+    return model_policy.apply_profile(cfg, host, legacy, max_output_tokens)
 
 
 class JevComputeOrchestrator:
