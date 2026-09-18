@@ -113,23 +113,36 @@ The installer preserves other settings and hooks, backs up changed configuration
 
 ## Jev-guided context compaction (optional)
 
-Claude Code can use a project-scoped adaptation of
-`tamaratran/fast-jev-compaction`. It keeps user/assistant text verbatim and
-asks Jev whether older tool calls/results should stay, be truncated, or be
-removed. Enable it explicitly:
+Claude Code, Codex and Cursor can use the same project-scoped Jev compaction
+policy. Enable it for whichever agents are installed in the project:
 
 ```bash
-io-delegation setup --project . --agent claude-code --compaction on
+io-delegation setup --project . --agent all --compaction on
+# or only one host:
+io-delegation setup --project . --agent codex --compaction on
 ```
+
+The decision model is shared, while the host adapter matches the lifecycle each
+client actually exposes:
+
+| Host | Integration |
+| --- | --- |
+| Claude Code | Native `session.compact` replacement using the vendored `fast-jev-compaction` core. User/assistant text stays verbatim; Jev prunes or truncates old tool evidence. |
+| Codex | Command hooks journal prompts/tool I/O locally. `PreCompact` runs Jev, native compaction proceeds, then `SessionStart(source=compact)` injects the retained verbatim tool evidence before the next model request. |
+| Cursor | Command hooks journal prompts/tool I/O locally. `preCompact` runs Jev; because Cursor's hook is observational, retained evidence is injected by the first `postToolUse` after compaction or by one bounded `stop` follow-up if no tool call occurs. |
 
 This is intentionally separate from `--jev on`. The normal router sends task
 text plus aggregate corpus metadata; compaction has a broader data boundary and
-sends conversation text plus tool inputs to TypeSafe (full tool results are
-represented by short metadata notes in Jev state). The project-local ignored
-policy records that approval, the API key remains in `TYPESAFE_API_KEY` (or
-the `--typesafe-env` variable), and the globally installed Claude plugin stays
-inert outside projects with that policy. If Jev fails or the reduction is too
-small, Claude Code falls back to its built-in compaction.
+sends conversation text plus tool inputs to TypeSafe. **Full tool-result bodies
+are not sent to Jev** in the Codex/Cursor bridge: Jev sees only result
+size/error metadata, while the exact result stays machine-local and is
+re-injected only when Jev says it should survive compaction.
+
+The ignored `.io-delegation/compaction.json` policy records the approved hosts
+and data scope. The API key remains in `TYPESAFE_API_KEY` (or the
+`--typesafe-env` variable). Outside an opted-in project the adapters are
+inert. Any Jev/adapter failure falls back to the host's native compaction rather
+than blocking the session.
 
 ## What it does
 
