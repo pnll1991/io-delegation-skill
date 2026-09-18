@@ -8,7 +8,7 @@
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation es un **context gateway** para agentes de código. Expone tres herramientas MCP principales: `search`, `extract` y `query`. El agente principal conserva depuración, arquitectura, seguridad y ediciones finales. El routing con TypeSafe Jev es opcional; la compactación de contexto guiada por Jev queda automática por defecto; el worker semántico sigue experimental y no se auto-despacha por defecto.
+I/O Delegation es un **context gateway** para agentes de código. Expone tres herramientas MCP principales: `search`, `extract` y `query`. El agente principal conserva depuración, arquitectura, seguridad y ediciones finales. El routing con TypeSafe Jev sigue siendo opcional; cuando hay un worker aprobado, Jev puede orquestar automáticamente compute barato con tiers T0/T1/T2; la compactación de contexto guiada por Jev queda automática por defecto.
 
 ```text
 agente -> io_context -> search / extract / query
@@ -18,7 +18,7 @@ agente -> io_context -> search / extract / query
                          dirigida principal worker
 ```
 
-Funciona sin un modelo externo. El router Jev opcional recibe la tarea y metadatos agregados. La compactación automática usa Jev cuando su API key configurada está disponible y tiene la frontera más amplia de conversación/inputs de tools documentada abajo; si Jev no está disponible, queda la compactación nativa del host.
+Funciona sin un modelo externo. El routing y el scoring de compute con Jev reciben la tarea y metadatos agregados, no cuerpos de source ni nombres de archivos. Con un worker configurado, la orquestación puede probar una sola vez un worker barato aprobado y sólo acepta su salida después de validar evidencia literal; si no alcanza, escala al principal. La compactación automática usa Jev cuando su API key está disponible; si no, queda la compactación nativa del host.
 
 ## Instalación rápida
 
@@ -33,7 +33,7 @@ io-delegation.cmd setup --project "D:\\ruta\\al\\proyecto"
 ./io-delegation setup --project "/ruta/al/proyecto"
 ```
 
-`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, mantiene el **routing Jev apagado por defecto**, activa la **compactación automática por defecto**, deja el auto-dispatch del worker **apagado por defecto**, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
+`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, mantiene el **routing Jev apagado por defecto**, activa **orquestación cheap-first automáticamente cuando hay un worker aprobado**, activa la **compactación automática por defecto**, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
 
 ```bash
 io-delegation setup --project . --dry-run
@@ -49,13 +49,14 @@ Opciones comunes:
 io-delegation setup --project . --agent codex
 io-delegation setup --project . --agent all --jev on
 io-delegation setup --project . --worker-config /ruta/privada/worker.json
+io-delegation setup --project . --orchestration off  # escape hatch persistente
 io-delegation setup --project . --guard enforce
 io-delegation setup --project . --compaction off  # escape hatch persistente
 ```
 
-La mera presencia de `TYPESAFE_API_KEY` ya no habilita Jev automáticamente. Usá `--jev on` (o un `--router-config` revisado explícitamente) sólo cuando quieras probar el router experimental.
+La mera presencia de `TYPESAFE_API_KEY` no habilita automáticamente el selector experimental de rutas Jev. Usá `--jev on` (o un `--router-config` revisado) cuando quieras ese router. La orquestación de compute es independiente: con un `--worker-config` aprobado, setup usa `--orchestration auto`; si falta la key de TypeSafe, cae a T2/principal sin despachar el worker.
 
-`--worker-config` sólo deja disponible un worker ya aprobado. El despacho automático desde `query` sigue siendo experimental y además exige `"context_auto_dispatch": true` dentro de esa configuración revisada.
+El camino anterior de auto-dispatch incondicional sigue requiriendo `"context_auto_dispatch": true`. Cheap-first no: Jev debe pasar primero thresholds deterministas de suficiencia/riesgo, el worker tiene un intento acotado y cualquier evidencia fallida o con unknowns escala al principal.
 
 Las credenciales reales no se escriben en el proyecto: la configuración MCP referencia variables de entorno. Codex usa configuración administrada a nivel usuario, Cursor un MCP global que resuelve el proyecto desde el workspace actual y Claude Code scope `user` cuando su CLI está disponible. Ver [diseño V1](docs/PRODUCT_V1.md) e [instalación V1](docs/INSTALLATION_V1.md). El flujo manual anterior (`install.py`, runner y herramientas de compatibilidad) sigue disponible.
 
@@ -167,6 +168,46 @@ python benchmarks/run.py --output benchmark-output
 
 Ejecutar en main actual cuenta la skill actual. Para reproducir las cifras históricas, usá el `executed_commit` del informe, como explica la guía. El piloto de modelos se ejecuta manualmente; el conteo liviano corre ante cambios relevantes. Sus dependencias no son necesarias para instalar ni usar la skill.
 
+
+## Orquestación cheap-first de modelos con Jev
+
+Con un worker aprobado, I/O Delegation puede optimizar el **costo total por tarea validada** en vez de enviar toda lectura semántica al modelo más fuerte. Las reglas locales asignan primero el trabajo obvio a T0 o T2; Jev se consulta sólo cuando hay un candidato factual/bulk.
+
+```text
+T0 local/determinístico
+        |
+candidato bulk -> scores Jev -> T1 worker barato -> validator -> listo
+                               |                     |
+                               |                     +-> falla/unknown -> T2 principal
+                               +-> riesgo/duda ------> T2 principal
+```
+
+Los gates por defecto son conservadores: suficiencia del modelo barato debe ser al menos 0,78 y los scores de riesgo alto, incertidumbre y razonamiento requerido deben quedar debajo de sus límites. Debugging, arquitectura, seguridad, edición y generación van siempre a T2. Jev nunca inventa un provider o modelo.
+
+Un bloque opcional `compute_profiles.cheap` dentro de la configuración de worker ya aprobada puede elegir un modelo/effort más barato para Codex CLI o un modelo/cap de output más barato en Chat Completions compatible. Sin perfil, T1 usa el worker base aprobado.
+
+```json
+{
+  "approved": true,
+  "adapter": "codex-cli",
+  "model": "strong-default-model",
+  "reasoning_effort": "medium",
+  "compute_profiles": {
+    "cheap": {
+      "model": "approved-cheap-model",
+      "reasoning_effort": "low"
+    }
+  }
+}
+```
+
+```bash
+io-delegation setup --project . --worker-config /ruta/privada/worker.json
+io-delegation setup --project . --orchestration off
+io-delegation setup --project . --orchestration on
+```
+
+La telemetría registra T0/T1/T2, escalaciones, uso del worker y uso de Jev para routing/orchestration. El accounting del sistema incluye esos tokens de control; usage no reportado deja el total incompleto en vez de asumir costo cero. Ver [orquestación de compute con Jev](skills/io-delegation/references/ORCHESTRATION.md).
 
 ## Compactación automática de contexto guiada por Jev
 
