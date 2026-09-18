@@ -10,7 +10,7 @@
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing remains optional; when an approved worker is configured, Jev can automatically orchestrate cheap-first T0/T1/T2 compute; Jev-guided context compaction is automatic by default.
+I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing remains optional; when an approved CLI worker is configured, Jev can drive a host-aware, cost/capability model policy for Codex and Cursor; Jev-guided context compaction is automatic by default.
 
 ```text
 agent -> io_context -> search / extract / query
@@ -20,7 +20,7 @@ agent -> io_context -> search / extract / query
                       targeted  principal  worker
 ```
 
-The gateway still works without an external model. Jev routing and compute scoring receive task text plus aggregate metadata, not source bodies or file names. When a worker is configured, compute orchestration can try one approved cheap worker and accepts it only after literal-evidence validation; otherwise it escalates to the principal. Automatic compaction uses Jev when its configured API key is available and has the broader conversation/tool-input data boundary documented below; if Jev is unavailable, native host compaction remains the fallback.
+The gateway still works without an external model. Jev routing and compute scoring receive task text plus aggregate metadata, not source bodies or file names. When a supported CLI worker is configured, local policy chooses the minimum efficient approved profile under the user's ceiling; validated incomplete results may escalate within a bounded ladder, while transport failures fall back to the principal. Automatic compaction uses Jev when its configured API key is available and has the broader conversation/tool-input data boundary documented below; if Jev is unavailable, native host compaction remains the fallback.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ io-delegation.cmd setup --project "D:\\path\\to\\project"
 ./io-delegation setup --project "/path/to/project"
 ```
 
-Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps experimental Jev **routing off by default**, enables **cheap-first compute orchestration automatically when an approved worker is configured**, enables **automatic context compaction by default**, keeps the read guard **off by default**, and runs `doctor`.
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps experimental Jev **routing off by default**, enables **host-aware compute orchestration automatically when an approved worker is configured**, uses the **balanced model preset by default**, enables **automatic context compaction by default**, keeps the read guard **off by default**, and runs `doctor`.
 
 Preview with zero writes, then inspect the installation at any time:
 
@@ -55,6 +55,7 @@ To configure specific hosts or behavior:
 io-delegation setup --project . --agent codex
 io-delegation setup --project . --agent all --jev on
 io-delegation setup --project . --worker-config /private/worker.json
+io-delegation setup --project . --model-preset balanced
 io-delegation setup --project . --orchestration off  # persistent project escape hatch
 io-delegation setup --project . --guard enforce
 io-delegation setup --project . --compaction off  # persistent escape hatch
@@ -62,7 +63,7 @@ io-delegation setup --project . --compaction off  # persistent escape hatch
 
 `TYPESAFE_API_KEY` being present does not auto-enable the experimental Jev route selector. Use `--jev on` (or an explicitly reviewed `--router-config`) when you want that router. Compute orchestration is separate: with an approved `--worker-config`, setup defaults to `--orchestration auto`; a missing TypeSafe key simply falls back to T2/principal without dispatching the worker.
 
-The older unconditional semantic-worker path still requires `"context_auto_dispatch": true`. Cheap-first orchestration does not: Jev must first pass deterministic risk/sufficiency thresholds, the worker gets one bounded attempt, and failed/unknown evidence escalates to the principal.
+The older unconditional semantic-worker path still requires `"context_auto_dispatch": true`. Host-aware orchestration does not: Jev scores task requirements, local policy selects an approved profile, and only valid-but-incomplete evidence may climb the bounded model ladder.
 
 Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP that resolves the active project from the current workspace, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
 
