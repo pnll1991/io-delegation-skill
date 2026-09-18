@@ -169,7 +169,7 @@ def validate_manifest(data, path=None):
         ):
             raise ValueError('invalid expected_route')
     for arm in arms:
-        for flag in ('gateway', 'jev', 'worker'):
+        for flag in ('gateway', 'jev', 'worker', 'skill'):
             if arm.get(flag, False) not in (True, False):
                 raise ValueError(f'{flag} must be boolean')
         if arm.get('activation', 'auto') not in ('auto', 'always', 'off'):
@@ -377,7 +377,8 @@ def run_one(manifest, repos, router, worker, task, arm, repetition, ordinal, out
         if arm.get('gateway'):
             # Production keeps the skill and host-level MCP registration installed even when
             # activation bypasses a task/project. The bootstrap then advertises zero tools.
-            install_skill(worktree)
+            if arm.get('skill', True):
+                install_skill(worktree)
             if activation['decision'] == 'enable':
                 command += context_mcp.codex_arguments(
                     worktree, audit,

@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent
 SKILL_SOURCE = ROOT / 'skills' / 'io-delegation'
 SERVER_NAME = 'io_context'
 STATE_VERSION = 2
+DEFAULT_JEV_SETUP_MODE = 'off'
 USER_ROOT = Path(os.environ.get('IO_DELEGATION_HOME', str(Path.home()/'.io-delegation'))).expanduser()
 HOST_HOME = Path(os.environ.get('IO_DELEGATION_HOST_HOME', str(Path.home()))).expanduser()
 MARKER_DIR = Path('.io-delegation')
@@ -544,7 +545,7 @@ def setup_choices(root,args,existing):
     elif args.jev is None and existing and existing.get('router_config'):
         router_mode='on'; router_source=existing['router_config']
     else:
-        router_mode=args.jev or 'auto'; router_source=None
+        router_mode=args.jev or DEFAULT_JEV_SETUP_MODE; router_source=None
     return agents,prefixes,files,guard,activation,worker,router_mode,router_source
 
 

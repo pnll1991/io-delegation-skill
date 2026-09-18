@@ -37,7 +37,7 @@ io-delegation.cmd setup --project "D:\\path\\to\\project"
 ./io-delegation setup --project "/path/to/project"
 ```
 
-Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, enables Jev only when `TYPESAFE_API_KEY` is available, keeps semantic-worker auto-dispatch **off by default**, keeps the read guard **off by default**, and runs `doctor`.
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps Jev **off by default** unless explicitly enabled, keeps semantic-worker auto-dispatch **off by default**, keeps the read guard **off by default**, and runs `doctor`.
 
 Preview with zero writes, then inspect the installation at any time:
 
@@ -58,9 +58,11 @@ io-delegation setup --project . --worker-config /private/worker.json
 io-delegation setup --project . --guard enforce
 ```
 
+`TYPESAFE_API_KEY` being present no longer auto-enables Jev. Use `--jev on` (or an explicitly reviewed `--router-config`) when you intentionally want the experimental router.
+
 `--worker-config` only makes an approved worker available. Automatic `query` dispatch remains experimental and additionally requires `"context_auto_dispatch": true` inside that reviewed worker config.
 
-Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP with `${workspaceFolder}`, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
+Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP that resolves the active project from the current workspace, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
 
 
 

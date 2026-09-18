@@ -41,6 +41,13 @@ class GatewayCLITests(unittest.TestCase):
         self.assertFalse(self.home.exists())
         self.assertFalse((self.host/'.codex').exists())
 
+    def test_default_setup_does_not_auto_enable_jev_from_environment(self):
+        with patch.dict(os.environ,{'TYPESAFE_API_KEY':'fixture'},clear=False):
+            code,text,err=self.cli('setup','--project',str(self.project),'--agent','codex','--dry-run')
+        self.assertEqual(code,0,err)
+        self.assertIn('Jev: off',text)
+        self.assertFalse(self.home.exists())
+
     def test_codex_setup_uses_global_mcp_and_real_doctor(self):
         code,text,err=self.setup_codex()
         self.assertEqual(code,0,err)

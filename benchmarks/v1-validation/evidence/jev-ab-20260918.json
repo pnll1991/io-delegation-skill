@@ -1,0 +1,42 @@
+{
+  "schema": "io-context-jev-evidence/v1",
+  "date": "2026-09-18",
+  "baseline_commit": "1bf28ce1a6a402ff56d395ab0959a0f5c48d6cd6",
+  "isolation_tag": "codex-isolated-v2",
+  "planned_runs": 40,
+  "completed_runs": 40,
+  "pairs": 20,
+  "arms": {
+    "gateway-local": {"runs": 20, "successes": 11},
+    "gateway-jev": {"runs": 20, "successes": 11}
+  },
+  "jev": {
+    "called_pairs": 9,
+    "router_tokens_total": 8147,
+    "targeted_called_pairs": 5,
+    "principal_called_pairs": 4,
+    "multi_file_called_pairs": 0,
+    "small_control_called_pairs": 0
+  },
+  "quality": {
+    "causal_gains": ["jev-security-server:r1"],
+    "causal_regressions": [],
+    "arm_level_regressions_without_jev_call": ["jev-multifile-ipc:r2"]
+  },
+  "routing": {
+    "gateway_jev_effective_route_mismatches": 7,
+    "jev_called_effective_route_mismatches": 1
+  },
+  "efficiency": {
+    "note": "Medians below include only pairs where Jev was called and both arms passed; all five such pairs are from the targeted family.",
+    "valid_called_pairs": 5,
+    "principal_token_delta_pct_median": -23.293826250716453,
+    "wall_delta_pct_median": -27.606727037516166
+  },
+  "decision": {
+    "production_default": "off",
+    "policy": "explicit-opt-in-only",
+    "threshold_change": false,
+    "reason": "The sample is complete but Jev was reached in only 9/20 pairs and never in the multi-file family. The only arm-level regression occurred where Jev was not called, so it is not causal evidence against Jev. The causal subset is promising on targeted reads but too narrow to justify default activation."
+  }
+}

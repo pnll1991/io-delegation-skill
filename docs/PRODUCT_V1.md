@@ -69,7 +69,7 @@ By default setup:
 - installs the self-contained skill
 - registers one machine-local/global `io_context` MCP per host and resolves the active project at runtime
 - auto-detects a safe source scope
-- enables Jev only when `TYPESAFE_API_KEY` is already available
+- keeps Jev off by default; explicit `--jev on`, `--jev auto`, or a reviewed router config is required
 - keeps semantic-worker auto-dispatch off by default; an approved config plus explicit experimental opt-in is required to enable it
 - leaves the read guard off unless explicitly requested
 - runs `doctor`
@@ -110,20 +110,22 @@ Implemented:
 
 Worker validation result (#15): the isolated 25-pair sample found no material principal-token compression, about +97% median principal+worker token overhead, roughly +16.3 s median wall-time overhead, 2/25 accepted worker responses, and one clean quality regression. V1 therefore removes semantic-worker auto-dispatch from the default production path; the implementation remains experimental for explicit opt-in and compatibility testing.
 
+Jev validation result (#14): the repeated 20-pair isolated sample completed with 11/20 successes in each arm. Jev was actually called in 9 pairs. Among those called pairs there were no clean quality regressions and one quality gain; the only arm-level regression occurred in a pair where Jev was not called. The Jev arm still produced 7 effective-route mismatches overall, and the multi-file family never reached Jev. V1 therefore does not auto-enable Jev from `TYPESAFE_API_KEY`; Jev remains explicit opt-in while the local deterministic gateway is the default path. The machine-readable evidence is `benchmarks/v1-validation/evidence/jev-ab-20260918.json`.
+
 Validation remaining before calling V1 generally useful:
 
-- [ ] [#5](https://github.com/pnll1991/io-delegation-skill/issues/5) Dogfood at least 20 real tasks across 3+ repositories
-- [ ] Include large-repo, multi-file audit, debugging/security and small-task negative controls
-- [ ] [#6](https://github.com/pnll1991/io-delegation-skill/issues/6) Repeat key A/B task families at least 5 times to characterize variance
-- [ ] Measure selected bytes/context returned in addition to token totals
-- [ ] Record false routing decisions and unnecessary worker calls
+- [ ] [#12](https://github.com/pnll1991/io-delegation-skill/issues/12) Complete the official 20-task / 40-run dogfood sample across 3 pinned repositories
+- [x] Include large-repo, multi-file audit, debugging/security and small-task negative controls in the frozen dogfood manifest
+- [x] [#14](https://github.com/pnll1991/io-delegation-skill/issues/14) Repeat the Jev A/B families 5 times and preserve all negative runs
+- [x] Measure selected bytes/context returned separately from principal, router and worker token domains
+- [x] Record routing mismatches, router calls and unnecessary worker calls
 
 Distribution / UX follow-ups:
 
 - [x] Add explicit `setup --dry-run` preview with zero writes
 - [x] Add surgical `remove`, config snapshots, `backups` and guarded `restore`
 - [x] Keep the cross-agent repo CLI for beta; defer package distribution until dogfood proves utility
-- [ ] [#8](https://github.com/pnll1991/io-delegation-skill/issues/8) Test real Claude Code and Cursor authenticated sessions, not only MCP handshake
+- [ ] [#18](https://github.com/pnll1991/io-delegation-skill/issues/18) Complete authenticated Claude Code and Cursor parity/lifecycle, not only MCP handshake
 - [ ] Evaluate a Cursor plugin package after the cross-agent CLI is stable
 - [ ] Add optional richer session report only if users need it; no dashboard-first work
 

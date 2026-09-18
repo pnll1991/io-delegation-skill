@@ -61,7 +61,13 @@ También actualiza automáticamente el ejecutable de Python registrado si cambi�
 
 ## Smart routing
 
-Si `TYPESAFE_API_KEY` ya está disponible, `--jev auto` (default inicial) crea una configuración aprobada fuera del proyecto y el MCP global hereda únicamente el nombre de la variable.
+Jev está **off por defecto**, incluso si `TYPESAFE_API_KEY` ya está disponible. Esto evita activar routing externo por mera presencia de una credencial. Para probarlo deliberadamente:
+
+```bash
+io-delegation setup --project . --jev on
+```
+
+`--jev auto` sigue disponible como modo experimental/compatibilidad y puede crear una configuración aprobada fuera del proyecto cuando la variable existe. El MCP global hereda únicamente el nombre de la variable, nunca su valor.
 
 ```powershell
 $env:TYPESAFE_API_KEY="..."

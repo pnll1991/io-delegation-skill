@@ -33,7 +33,7 @@ io-delegation.cmd setup --project "D:\\ruta\\al\\proyecto"
 ./io-delegation setup --project "/ruta/al/proyecto"
 ```
 
-`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, habilita Jev si `TYPESAFE_API_KEY` existe, deja el auto-dispatch del worker **apagado por defecto**, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
+`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, mantiene Jev **apagado por defecto** salvo activación explícita, deja el auto-dispatch del worker **apagado por defecto**, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
 
 ```bash
 io-delegation setup --project . --dry-run
@@ -51,6 +51,8 @@ io-delegation setup --project . --agent all --jev on
 io-delegation setup --project . --worker-config /ruta/privada/worker.json
 io-delegation setup --project . --guard enforce
 ```
+
+La mera presencia de `TYPESAFE_API_KEY` ya no habilita Jev automáticamente. Usá `--jev on` (o un `--router-config` revisado explícitamente) sólo cuando quieras probar el router experimental.
 
 `--worker-config` sólo deja disponible un worker ya aprobado. El despacho automático desde `query` sigue siendo experimental y además exige `"context_auto_dispatch": true` dentro de esa configuración revisada.
 
