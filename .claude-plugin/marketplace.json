@@ -1,0 +1,11 @@
+{
+  "name": "io-delegation",
+  "owner": {"name": "pnll1991", "url": "https://github.com/pnll1991"},
+  "plugins": [{
+    "name": "io-delegation-jev-compaction",
+    "source": "./integrations/claude-code/jev-compaction",
+    "description": "Project-scoped Jev-guided verbatim compaction for I/O Delegation.",
+    "version": "0.1.0",
+    "license": "MIT"
+  }]
+}
