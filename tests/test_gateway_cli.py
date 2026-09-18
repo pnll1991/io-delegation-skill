@@ -332,7 +332,7 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(code,0,err)
         self.assertIn('Jev compute orchestration',text)
         self.assertIn('Jev compute key',text)
-        self.assertIn('cheap-first worker',text)
+        self.assertIn('model worker',text)
 
     def test_worker_status_distinguishes_configured_from_auto_dispatch(self):
         worker=self.base/'worker.json'
