@@ -49,22 +49,33 @@ class GatewayCLITests(unittest.TestCase):
         self.assertIn('Compaction: off',text)
         self.assertFalse(self.home.exists())
 
-    def test_compaction_requires_claude_code_agent(self):
+    def test_compaction_dry_run_supports_codex_without_claude(self):
         code,text,err=self.cli('setup','--project',str(self.project),'--agent','codex',
                                '--compaction','on','--dry-run')
-        self.assertEqual(code,2)
-        self.assertIn('requires --agent claude-code',err)
+        self.assertEqual(code,0,err)
+        self.assertIn('Compaction: on (project-scoped: codex)',text)
+        self.assertFalse((self.project/'.codex/hooks.json').exists())
+        self.assertFalse((self.project/'.io-delegation').exists())
+
+    def test_compaction_dry_run_supports_cursor_without_claude(self):
+        code,text,err=self.cli('setup','--project',str(self.project),'--agent','cursor',
+                               '--compaction','on','--dry-run')
+        self.assertEqual(code,0,err)
+        self.assertIn('Compaction: on (project-scoped: cursor)',text)
+        self.assertFalse((self.project/'.cursor/hooks.json').exists())
 
     def test_compaction_policy_is_project_local_and_secret_free(self):
         gateway.ensure_marker(self.project)
         secret='NEVER_WRITE_THIS_KEY'
         with patch.dict(os.environ,{'CUSTOM_JEV_KEY':secret},clear=False):
-            path,action=gateway.sync_compaction_policy(self.project,'on','CUSTOM_JEV_KEY')
+            path,action=gateway.sync_compaction_policy(
+                self.project,'on','CUSTOM_JEV_KEY',['codex','cursor'])
         self.assertEqual(action,'written')
         row=json.loads(path.read_text(encoding='utf-8'))
         self.assertTrue(row['enabled'])
         self.assertEqual(row['approved_data_scope'],gateway.COMPACTION_DATA_SCOPE)
         self.assertEqual(row['api_key_env'],'CUSTOM_JEV_KEY')
+        self.assertEqual(row['hosts'],['codex','cursor'])
         self.assertNotIn(secret,path.read_text(encoding='utf-8'))
 
     def test_compaction_plugin_install_uses_io_delegation_marketplace(self):
@@ -109,6 +120,29 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(code,2)
         self.assertIn('fixture final save failure',err)
         self.assertFalse(gateway.compaction_policy_path(self.project).exists())
+
+    def test_codex_compaction_setup_installs_project_hooks(self):
+        code,text,err=self.setup_codex('--compaction','on')
+        self.assertEqual(code,0,err)
+        hooks=gateway.read_json(self.project/'.codex/hooks.json')
+        self.assertIn('PreCompact',hooks['hooks'])
+        self.assertIn('SessionStart',hooks['hooks'])
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['compaction_hosts'],['codex'])
+        policy=gateway.read_json(self.project/'.io-delegation/compaction.json')
+        self.assertEqual(policy['hosts'],['codex'])
+        status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
+        self.assertTrue(status['compaction_adapters']['codex'])
+
+    def test_cursor_compaction_setup_installs_recovery_hooks(self):
+        code,text,err=self.cli('setup','--project',str(self.project),'--agent','cursor','--jev','off',
+                               '--compaction','on','--no-doctor')
+        self.assertEqual(code,0,err)
+        hooks=gateway.read_json(self.project/'.cursor/hooks.json')
+        self.assertIn('preCompact',hooks['hooks'])
+        self.assertIn('postToolUse',hooks['hooks'])
+        self.assertIn('stop',hooks['hooks'])
+        self.assertEqual(hooks['hooks']['stop'][-1]['loop_limit'],1)
 
     def test_codex_setup_uses_global_mcp_and_real_doctor(self):
         code,text,err=self.setup_codex()

@@ -169,22 +169,35 @@ Ejecutar en main actual cuenta la skill actual. Para reproducir las cifras hist�
 
 ## Compactación de contexto guiada por Jev (opcional)
 
-Claude Code puede usar una adaptación por proyecto de
-`tamaratran/fast-jev-compaction`. Conserva literalmente el texto de
-usuario/asistente y usa Jev para decidir si tool calls/resultados antiguos se
-conservan, se truncan o se eliminan. Se activa de forma explícita:
+Claude Code, Codex y Cursor pueden usar la misma política de compactación Jev
+por proyecto. Se habilita para los agentes instalados:
 
 ```bash
-io-delegation setup --project . --agent claude-code --compaction on
+io-delegation setup --project . --agent all --compaction on
+# o solamente un host:
+io-delegation setup --project . --agent cursor --compaction on
 ```
 
-Esto está separado deliberadamente de `--jev on`. El router normal envía la
-tarea y metadatos agregados; la compactación tiene un límite de datos más amplio:
-envía texto de conversación y entradas de tools a TypeSafe, mientras los outputs
-completos se reemplazan por notas cortas en el estado que ve Jev. La aprobación
-queda en una política local ignorada por git, la API key permanece en la variable
-de entorno y el plugin global queda inactivo fuera de proyectos opt-in. Ante
-errores o reducción insuficiente se usa la compactación nativa de Claude Code.
+El modelo de decisión es común; cambia el adapter según el lifecycle real de
+cada cliente:
+
+| Host | Integración |
+| --- | --- |
+| Claude Code | Reemplaza `session.compact` de forma nativa usando el core vendorizado de `fast-jev-compaction`. El texto usuario/asistente queda literal y Jev poda o trunca evidencia vieja de tools. |
+| Codex | Hooks de comando registran prompts y tool I/O localmente. `PreCompact` ejecuta Jev, luego ocurre la compactación nativa y `SessionStart(source=compact)` reinyecta la evidencia literal retenida antes del próximo request al modelo. |
+| Cursor | Hooks de comando registran prompts y tool I/O localmente. `preCompact` ejecuta Jev; como ese hook es observacional, la evidencia se reinyecta en el primer `postToolUse` posterior o mediante un único `stop` follow-up acotado si no hubo otra tool call. |
+
+Esto está separado deliberadamente de `--jev on`. El router normal envía tarea
+y metadatos agregados; la compactación tiene una frontera de datos más amplia y
+envía texto de conversación e inputs de tools a TypeSafe. **Los cuerpos completos
+de resultados de tools no se envían a Jev** en el bridge de Codex/Cursor: Jev
+recibe sólo tamaño/estado del resultado; el contenido exacto queda local y se
+reinyecta únicamente si Jev decide conservarlo.
+
+La política ignorada `.io-delegation/compaction.json` registra los hosts y el
+scope aprobados. La API key permanece en `TYPESAFE_API_KEY` (o la variable
+indicada por `--typesafe-env`). Fuera de proyectos opt-in los adapters quedan
+inactivos. Ante cualquier fallo se usa la compactación nativa del host.
 
 ## Qué incluye
 
