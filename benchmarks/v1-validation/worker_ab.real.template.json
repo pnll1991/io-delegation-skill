@@ -25,7 +25,7 @@
       "id": "worker-camara-use-client",
       "repo": "camara",
       "question": "For the selected evidence only, count every literal 'use client' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
-      "prompt": "Create only benchmark-output/worker-camara-use-client.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'use client', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "prompt": "Create only benchmark-output/worker-camara-use-client.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'use client', files as objects {path,occurrences}, file_count, and top-level occurrences as an integer. Paths must be repository-relative. Do not infer outside the supplied evidence.",
       "output": "benchmark-output/worker-camara-use-client.json",
       "allow_files": [
         "src/app/socios/page.tsx",
@@ -172,7 +172,7 @@
       "id": "worker-camara-next-image",
       "repo": "camara",
       "question": "For the selected evidence only, count every literal 'next/image' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
-      "prompt": "Create only benchmark-output/worker-camara-next-image.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'next/image', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "prompt": "Create only benchmark-output/worker-camara-next-image.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'next/image', files as objects {path,occurrences}, file_count, and top-level occurrences as an integer. Paths must be repository-relative. Do not infer outside the supplied evidence.",
       "output": "benchmark-output/worker-camara-next-image.json",
       "allow_files": [
         "src/components/AlmuerzoContent.tsx",
@@ -319,7 +319,7 @@
       "id": "worker-kuatrometric-header",
       "repo": "kuatrometric",
       "question": "For the selected evidence only, count every literal 'assets/site-header.js' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
-      "prompt": "Create only benchmark-output/worker-kuatrometric-header.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'assets/site-header.js', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "prompt": "Create only benchmark-output/worker-kuatrometric-header.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'assets/site-header.js', files as objects {path,occurrences}, file_count, and top-level occurrences as an integer. Paths must be repository-relative. Do not infer outside the supplied evidence.",
       "output": "benchmark-output/worker-kuatrometric-header.json",
       "allow_files": [
         "404.html",
@@ -466,7 +466,7 @@
       "id": "worker-steroid-src-child-process",
       "repo": "steroid",
       "question": "For the selected evidence only, count every literal 'child_process' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
-      "prompt": "Create only benchmark-output/worker-steroid-src-child-process.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'child_process', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "prompt": "Create only benchmark-output/worker-steroid-src-child-process.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'child_process', files as objects {path,occurrences}, file_count, and top-level occurrences as an integer. Paths must be repository-relative. Do not infer outside the supplied evidence.",
       "output": "benchmark-output/worker-steroid-src-child-process.json",
       "allow_files": [
         "src/main/codex/unified-exec.ts",
@@ -577,7 +577,7 @@
       "id": "worker-steroid-script-child-process",
       "repo": "steroid",
       "question": "For the selected evidence only, count every literal 'child_process' occurrence per source path and total. Preserve exact repository-relative source paths and support the counts with literal evidence.",
-      "prompt": "Create only benchmark-output/worker-steroid-script-child-process.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'child_process', files as objects {path,occurrences}, file_count, and total occurrences. Paths must be repository-relative. Do not infer outside the supplied evidence.",
+      "prompt": "Create only benchmark-output/worker-steroid-script-child-process.json. From the supplied evidence payload return exactly one JSON object with literal equal to 'child_process', files as objects {path,occurrences}, file_count, and top-level occurrences as an integer. Paths must be repository-relative. Do not infer outside the supplied evidence.",
       "output": "benchmark-output/worker-steroid-script-child-process.json",
       "allow_files": [
         "scripts/afterpack-macos-adhoc-seal.mjs",

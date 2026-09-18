@@ -35,6 +35,12 @@ class WorkerABRealTests(unittest.TestCase):
                     self.assertNotIn('[',selection['path'])
                     self.assertNotIn(']',selection['path'])
 
+    def test_literal_prompts_use_validator_occurrences_contract(self):
+        for task in self.data['tasks']:
+            with self.subTest(task=task['id']):
+                self.assertIn('top-level occurrences as an integer',task['prompt'])
+                self.assertNotIn('total occurrences',task['prompt'])
+
     def test_expansion_keeps_validation_root_local(self):
         value={'worker':'${IO_WORKER_CONFIG}','validator':'{validation_root}/validators.py'}
         out=mod.expand(value,{'IO_WORKER_CONFIG':'/tmp/worker.json'})
