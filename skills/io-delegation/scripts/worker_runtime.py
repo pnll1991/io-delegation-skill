@@ -290,7 +290,11 @@ def invoke_cursor(job, cfg, record=lambda *a, **k: None):
         (cursor_dir / 'cli.json').write_text(json.dumps({
             'permissions': {
                 'allow': ['Read(input.txt)'],
-                'deny': ['Shell(*)', 'Write(**)', 'WebFetch(*)', 'Mcp(*:*)'],
+                'deny': [
+                    'Shell(*)', 'Write(**)', 'WebFetch(*)', 'Mcp(*:*)',
+                    'Read(../**)', 'Read(/**)', 'Read(*:/**)', 'Read(~/**)',
+                    'Read(.cursor/**)',
+                ],
             }
         }), encoding='utf-8')
         model = cfg.get('cursor_model') or cfg['model']
