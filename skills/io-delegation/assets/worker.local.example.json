@@ -9,5 +9,11 @@
   "reader_max_tokens": 1600,
   "writer_max_tokens": 4096,
   "timeout_seconds": 60,
-  "context_auto_dispatch": false
+  "context_auto_dispatch": false,
+  "compute_profiles": {
+    "cheap": {
+      "model": "REEMPLAZAR_CON_ID_DE_MODELO_BARATO",
+      "max_output_tokens": 800
+    }
+  }
 }
