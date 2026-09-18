@@ -6,6 +6,7 @@ import subprocess
 
 import io_delegate as delegate
 import context_backend as backend
+import context_orchestrator as compute
 from context_cache import ResultCache
 from context_budget import BudgetError, limits, before_dispatch
 from context_selection import select, selected_job, validate_answer, grouped_question
@@ -56,17 +57,32 @@ class SemanticEngine:
         job = selected_job(bundle, question)
         return sources, bundle, job
 
-    def run(self, arguments):
+    def run(self, arguments, execution=None):
         cfg = self.check_config()
+        execution = execution if isinstance(execution, dict) else {}
+        transport_cfg = dict(cfg)
+        profile_meta = {
+            'profile': 'base-worker',
+            'model': cfg.get('model'),
+            'reasoning_effort': cfg.get('reasoning_effort'),
+            'output_token_cap_supported': cfg.get('adapter') == 'chat-completions',
+        }
+        if execution.get('tier') == 'T1':
+            transport_cfg, profile_meta = compute.cheap_worker_config(
+                cfg, execution.get('max_output_tokens'))
         sources, bundle, job = self.prepare(arguments)
         metrics = dict(route='selected-semantic', source_bytes=bundle['source_bytes'],
                        selected_bytes=bundle['selected_bytes'], request_bytes=len(encoded(job)),
-                       model_calls=0, cache='miss' if self.cache.enabled else 'disabled', usage=normalize_usage(None))
+                       model_calls=0, cache='miss' if self.cache.enabled else 'disabled', usage=normalize_usage(None),
+                       compute_tier=execution.get('tier'), worker_profile=profile_meta['profile'],
+                       worker_model=profile_meta['model'],
+                       worker_reasoning_effort=profile_meta['reasoning_effort'])
         if bundle['status'] != 'ok':
             return dict(status='insufficient_context', findings=[], sources=bundle['sources'],
                         coverage=bundle['coverage'], unknowns=['At least one selection found no usable region.'],
                         model_calls=0), metrics
-        key = self.cache.key(self.scope, sources, 'semantic_query', job, self.config_hash)
+        cache_operation = 'semantic_query:' + profile_meta['profile']
+        key = self.cache.key(self.scope, sources, cache_operation, job, self.config_hash)
         cached = self.cache.get(key)
         if cached is not None:
             # Revalidate scope and current source hashes even on an exact hit.
@@ -91,9 +107,10 @@ class SemanticEngine:
             record('worker_attempt')
             journal.acquire()
             cap, prior = before_dispatch(journal, cfg, bundle['selected_bytes'], len(encoded(job)))
-            transport_cfg = dict(cfg)
-            transport_cfg['reader_max_tokens'] = min(cfg.get('reader_max_tokens',1600), cap['max_output_tokens'])
-            metrics['output_token_cap_supported'] = cfg['adapter'] == 'chat-completions'
+            transport_cfg['reader_max_tokens'] = min(
+                int(transport_cfg.get('reader_max_tokens', cfg.get('reader_max_tokens',1600))),
+                cap['max_output_tokens'])
+            metrics['output_token_cap_supported'] = profile_meta['output_token_cap_supported']
             metrics['task_token_cap_is_between_calls'] = True
             output, raw_metrics = backend.invoke(job, transport_cfg, self.scope.root, record)
             if not response_seen:
