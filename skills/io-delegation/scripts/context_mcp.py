@@ -20,7 +20,7 @@ from worker_mcp import relative_name, PROTOCOLS, MAX_RPC_BYTES, reject_links
 import io_delegate as delegate
 
 SERVER = 'io_context'
-VERSION = '0.4.1'
+VERSION = '0.5.0'
 MAX_RESULT_BYTES = 24_000
 
 
