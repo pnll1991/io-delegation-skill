@@ -17,10 +17,10 @@ coding agent
                     |
               local rules / Jev
                /      |       \
-        targeted   principal   cheap-first T1
+        targeted   principal   host-aware worker
 ```
 
-Critical reasoning and edits stay in the main agent. The route-selector Jev remains optional. When an approved worker exists, compute orchestration is automatic but conservative: local rules keep obvious T0/T2 work out of Jev, and only a bulk factual candidate can receive one validated T1 cheap-worker attempt.
+Critical reasoning and edits stay in the main agent. The route-selector Jev remains optional. With an approved supported CLI worker, compute orchestration is automatic but conservative: local rules keep obvious local/sensitive work out of Jev, while bulk factual candidates get a host-specific approved model chosen by local cost/capability policy under a user ceiling.
 
 ## Real use cases
 
@@ -28,7 +28,7 @@ Core cases:
 
 1. **Understand a large or unfamiliar repository.** Locate relevant sources, extract bounded evidence, then keep causal reasoning in the main agent.
 2. **Audit many files.** HTML/JSON/config inventories should use deterministic extraction instead of making an LLM read every file.
-3. **Compare behavior across files.** `query` returns bounded selected evidence; with an approved worker, cheap-first orchestration may answer a bounded factual comparison in T1 and escalates failures to the principal.
+3. **Compare behavior across files.** `query` returns bounded selected evidence; with an approved CLI worker, host-aware orchestration can answer a bounded factual comparison with the minimum efficient configured profile and bounded escalation.
 4. **Protect critical reasoning.** Security, architecture and debugging should normally route back to the principal agent with bounded evidence.
 5. **Control context and observe routing.** Audit records expose routes, cache/model calls and errors without logging source contents.
 
@@ -70,7 +70,7 @@ By default setup:
 - registers one machine-local/global `io_context` MCP per host and resolves the active project at runtime
 - auto-detects a safe source scope
 - keeps the experimental Jev route selector off by default; explicit `--jev on`, `--jev auto`, or a reviewed router config is required
-- when an approved worker is configured, enables Jev cheap-first compute orchestration in `auto` mode; `--orchestration off` is the persistent escape hatch
+- when an approved worker is configured, enables Jev host-aware model orchestration in `auto` mode with `balanced` preset; `--orchestration off` is the persistent escape hatch
 - keeps the older unconditional `context_auto_dispatch` path off unless explicitly enabled
 - leaves the read guard off unless explicitly requested
 - runs `doctor`
@@ -92,7 +92,7 @@ Implemented:
 - [x] Keep `search` and `extract` deterministic and local
 - [x] Route `query` with local fallback rules and optional Jev
 - [x] Call Jev from the MCP/host process, not the agent shell
-- [x] Keep semantic workers selected-fragment only; leave unconditional auto-dispatch off and add separately gated T0/T1/T2 cheap-first orchestration
+- [x] Keep semantic workers selected-fragment only; leave unconditional auto-dispatch off and add host-aware Codex/Cursor model policy with editable presets and ceilings
 - [x] Fall back safely when Jev or the worker is unavailable
 - [x] Add one-command `setup`
 - [x] Add `status` and real-MCP `doctor`
