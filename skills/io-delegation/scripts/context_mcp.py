@@ -147,7 +147,7 @@ def tools(service):
         shape('python_symbol', dict(name=dict(type='string',minLength=1,maxLength=160)), ['name'])])
     if service.query:
         result.append(dict(name='query',
-            description='Smart bounded context query. Uses local rules plus optional Jev routing/compute scoring; approved cheap workers are validated and escalate to the principal on failure. Jev sees only task text and aggregate metadata.',
+            description='Smart bounded context query. Uses local rules plus optional Jev routing/compute scoring; approved host-aware model workers are selected by local policy, validated against literal evidence, and bounded by user ceilings/escalation limits. Jev sees only task text and aggregate metadata.',
             inputSchema=dict(type='object', properties=dict(
                 selections=dict(type='array',minItems=1,maxItems=12,items=dict(type='object',
                     properties=dict(path=dict(type='string'),select=selector),required=['path','select'],additionalProperties=False)),
