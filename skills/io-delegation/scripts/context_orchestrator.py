@@ -162,6 +162,19 @@ def cheap_worker_config(cfg, max_output_tokens=None):
     profiles = cfg.get('compute_profiles', {}) or {}
     profile = profiles.get('cheap') if isinstance(profiles, dict) else None
     profile = profile if isinstance(profile, dict) else {}
+    if cfg.get('adapter') == 'command' and not profile:
+        derived = dict(cfg)
+        return derived, {
+            'profile': 'base-worker',
+            'model': derived.get('model'),
+            'reasoning_effort': derived.get('reasoning_effort'),
+            'adapter': 'command',
+            'cursor_model': None,
+            'output_token_cap_supported': False,
+            'capability': None,
+            'cost_index': None,
+            'source': 'legacy-base-worker',
+        }
     model = profile.get('model', cfg.get('model'))
     if not isinstance(model, str) or not model.strip():
         raise ValueError('Cheap worker profile requires a valid model')
