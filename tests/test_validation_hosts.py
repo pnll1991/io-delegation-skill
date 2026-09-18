@@ -73,6 +73,17 @@ class HostValidationTests(unittest.TestCase):
         self.assertEqual(mod.mcp_check_command('cursor')[1:4], ['mcp', 'list-tools', 'io_context'])
         self.assertEqual(mod.mcp_check_command('codex')[1:4], ['mcp', 'list', '--json'])
 
+    def test_host_auth_checks_fail_closed(self):
+        self.assertEqual(mod.auth_check_command('claude')[1:], ['auth', 'status', '--json'])
+        self.assertEqual(mod.auth_check_command('cursor')[1:], ['status'])
+        self.assertEqual(mod.auth_check_command('codex')[1:], ['login', 'status'])
+        self.assertTrue(mod.auth_check_ok('claude', 0, '{"loggedIn":true}', ''))
+        self.assertFalse(mod.auth_check_ok('claude', 1, '{"loggedIn":false}', ''))
+        self.assertFalse(mod.auth_check_ok('cursor', 0, 'Not logged in', ''))
+        self.assertTrue(mod.auth_check_ok('cursor', 0, 'Logged in as test@example.invalid', ''))
+        self.assertTrue(mod.auth_check_ok('codex', 0, 'Logged in using ChatGPT', ''))
+        self.assertFalse(mod.auth_check_ok('codex', 0, 'Not logged in', ''))
+
     def test_codex_command_is_read_only_and_exclusive_mcp(self):
         with tempfile.TemporaryDirectory() as folder:
             base=Path(folder); project=base/'project'; marker=project/'.io-delegation/project.json'
@@ -186,6 +197,20 @@ class HostValidationTests(unittest.TestCase):
         self.assertEqual(usage['output_tokens'],4)
         self.assertEqual(usage['cached_input_tokens'],12)
 
+
+    def test_main_fails_when_host_suite_has_failed_cases(self):
+        suite={'version':1,'cases':[
+            {'id':str(i),'prompt':'p','expected_json':{'value':i},'expected_route':'principal'}
+            for i in range(4)
+        ]}
+        summary={'runs':4,'overall':{'gateway-host':{'success_rate':0.75}}}
+        with patch.object(mod,'read_json',return_value=suite), \
+             patch.object(mod,'preflight',return_value=(Path('.'),Path('.'))), \
+             patch.object(mod,'run_suite',return_value=summary):
+            self.assertEqual(mod.main([
+                '--host','codex','--project','.','--suite','ignored.json',
+                '--output','ignored-output'
+            ]),3)
 
     def test_managed_claude_mcp_config_contains_only_io_context(self):
         with tempfile.TemporaryDirectory() as folder:

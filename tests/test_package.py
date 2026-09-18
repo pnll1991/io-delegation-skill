@@ -35,11 +35,19 @@ class PackageTests(unittest.TestCase):
 
     def test_all_local_markdown_links_exist(self):
         for file in REPO.rglob('*.md'):
+            if 'node_modules' in file.parts:
+                continue
             for link in re.findall(r'\]\(([^)]+)\)', file.read_text(encoding='utf-8')):
                 if not link.startswith(('https://', 'http://', '#', 'mailto:')):
                     target = link.split('#')[0]
                     if target:
                         self.assertTrue((file.parent / target).exists(), f'{file}: {link}')
+
+    def test_claude_compaction_manifest_matches_package_version(self):
+        base = REPO / 'integrations/claude-code/jev-compaction'
+        package = json.loads((base / 'package.json').read_text(encoding='utf-8'))
+        plugin = json.loads((base / '.claude-plugin/plugin.json').read_text(encoding='utf-8'))
+        self.assertEqual(plugin['version'], package['version'])
 
     def test_examples_are_not_approved(self):
         for file in (SKILL / 'assets').glob('worker.*.example.json'):

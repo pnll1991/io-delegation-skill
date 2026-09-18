@@ -233,8 +233,13 @@ async function getApiKey(
   envName: string = 'TYPESAFE_API_KEY',
 ): Promise<string | undefined> {
   if (config.apiKey) return config.apiKey;
-  const fromEnv = await $.env.get(envName);
-  if (fromEnv) return fromEnv;
+  // Claude function hooks require $.env.get() names to be statically enumerable.
+  // The standard key can come from the process environment; custom policy names
+  // remain available through Claude settings.env without dynamic env access.
+  if (envName === 'TYPESAFE_API_KEY') {
+    const fromEnv = await $.env.get('TYPESAFE_API_KEY');
+    if (fromEnv) return fromEnv;
+  }
   const settings = await $.settings.read();
   const env = settings['env'];
   if (env && typeof env === 'object') {
