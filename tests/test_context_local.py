@@ -169,7 +169,9 @@ class LocalTests(unittest.TestCase):
 
     def test_startup_settings_no_permission_bypass(self):
         args=codex_arguments(self.root,self.audit,prefixes=['src'])
-        self.assertNotIn('bypass',' '.join(args));self.assertNotIn('danger-full-access',' '.join(args))
+        text=' '.join(args)
+        self.assertNotIn('bypass',text);self.assertNotIn('danger-full-access',text)
+        self.assertIn('--host',text);self.assertIn('codex',text)
 
 
 if __name__=='__main__': unittest.main()
