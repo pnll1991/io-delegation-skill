@@ -14,6 +14,7 @@ tool call occurs after compaction.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -44,17 +45,59 @@ def encode(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _private_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass
+
+
 def atomic_write(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _private_dir(path.parent)
     data = (json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
     fd, tmp = tempfile.mkstemp(prefix=".io-compaction-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
         os.replace(tmp, path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+@contextmanager
+def journal_lock(path: Path):
+    lock = path.with_name(path.name + ".lock")
+    _private_dir(lock.parent)
+    acquired = False
+    for _ in range(100):
+        try:
+            lock.mkdir(mode=0o700)
+            acquired = True
+            break
+        except FileExistsError:
+            try:
+                age = time.time() - lock.stat().st_mtime
+                if age > 30:
+                    lock.rmdir()
+                    continue
+            except (FileNotFoundError, OSError):
+                pass
+            time.sleep(0.02)
+    if not acquired:
+        raise CompactionError("Timed out waiting for the session compaction journal.")
+    try:
+        yield
+    finally:
+        try:
+            lock.rmdir()
+        except OSError:
+            pass
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -143,6 +186,21 @@ def journal_path(project_id: str, host: str, session_id: str) -> Path:
         os.environ.get("IO_DELEGATION_HOME", str(Path.home() / ".io-delegation"))
     ).expanduser()
     return home / "compaction" / project_id / host / f"{_clean_session_id(session_id)}.json"
+
+
+def prune_stale_journals(path: Path, max_age_seconds: int = 86_400) -> None:
+    folder = path.parent
+    if not folder.is_dir():
+        return
+    now = time.time()
+    for candidate in folder.glob("*.json"):
+        if candidate == path:
+            continue
+        try:
+            if now - candidate.stat().st_mtime > max_age_seconds:
+                candidate.unlink()
+        except OSError:
+            pass
 
 
 def new_journal(session_id: str) -> dict[str, Any]:
@@ -654,51 +712,53 @@ def handle_event(
     _root, policy, project_id = project
     session_id = _session_id(host, event)
     path = journal_path(project_id, host, session_id)
-    journal = load_journal(path, session_id)
-    name = _event_name(host, event)
-    output: dict[str, Any] = {}
+    prune_stale_journals(path)
+    with journal_lock(path):
+        journal = load_journal(path, session_id)
+        name = _event_name(host, event)
+        output: dict[str, Any] = {}
 
-    if (host == "codex" and name == "UserPromptSubmit") or (
-        host == "cursor" and name == "beforeSubmitPrompt"
-    ):
-        record_prompt(journal, event.get("prompt"))
-    elif name in {"PreToolUse", "preToolUse"}:
-        record_pre_tool(journal, event)
-    elif name in {"PostToolUse", "postToolUse"}:
-        record_post_tool(journal, event)
-        if host == "cursor":
-            output = _deliver_cursor_context(journal)
-    elif name in {"postToolUseFailure"}:
-        record_post_tool(journal, event, failed=True)
-        if host == "cursor":
-            output = _deliver_cursor_context(journal)
-    elif name in {"PreCompact", "preCompact"}:
-        compacted = compact_journal(journal, policy, asker)
-        journal["pending"] = compacted["pending"]
-        journal["last_compaction"] = compacted["stats"]
-        if host == "cursor":
-            stats = compacted["stats"]
-            if compacted["pending"]:
-                output = {
-                    "user_message": (
-                        f"io-delegation: Jev retained {stats['kept'] + stats['results_dropped']}/"
-                        f"{stats['calls']} tool calls for exact context recovery."
-                    )
-                }
-    elif host == "codex" and name == "SessionStart" and event.get("source") == "compact":
-        output = _deliver_codex(journal)
-    elif host == "cursor" and name == "stop":
-        output = _deliver_cursor_stop(journal, event)
-    elif name in {"SessionEnd", "sessionEnd"}:
-        if not bool(policy.get("retain_session_cache", False)):
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-            return {}, path
+        if (host == "codex" and name == "UserPromptSubmit") or (
+            host == "cursor" and name == "beforeSubmitPrompt"
+        ):
+            record_prompt(journal, event.get("prompt"))
+        elif name in {"PreToolUse", "preToolUse"}:
+            record_pre_tool(journal, event)
+        elif name in {"PostToolUse", "postToolUse"}:
+            record_post_tool(journal, event)
+            if host == "cursor":
+                output = _deliver_cursor_context(journal)
+        elif name in {"postToolUseFailure"}:
+            record_post_tool(journal, event, failed=True)
+            if host == "cursor":
+                output = _deliver_cursor_context(journal)
+        elif name in {"PreCompact", "preCompact"}:
+            compacted = compact_journal(journal, policy, asker)
+            journal["pending"] = compacted["pending"]
+            journal["last_compaction"] = compacted["stats"]
+            if host == "cursor":
+                stats = compacted["stats"]
+                if compacted["pending"]:
+                    output = {
+                        "user_message": (
+                            f"io-delegation: Jev retained {stats['kept'] + stats['results_dropped']}/"
+                            f"{stats['calls']} tool calls for exact context recovery."
+                        )
+                    }
+        elif host == "codex" and name == "SessionStart" and event.get("source") == "compact":
+            output = _deliver_codex(journal)
+        elif host == "cursor" and name == "stop":
+            output = _deliver_cursor_stop(journal, event)
+        elif name in {"SessionEnd", "sessionEnd"}:
+            if not bool(policy.get("retain_session_cache", False)):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                return {}, path
 
-    atomic_write(path, journal)
-    return output, path
+        atomic_write(path, journal)
+        return output, path
 
 
 def main(argv: list[str] | None = None) -> int:
