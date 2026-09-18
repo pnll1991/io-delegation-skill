@@ -1,4 +1,4 @@
-# Instalación V1.1 — Context Gateway
+# Instalación V1.2 — Context Gateway
 
 ## Camino recomendado
 
@@ -83,17 +83,26 @@ io-delegation setup --project . --jev off
 
 La key literal nunca se escribe en el estado, config de host, telemetría ni marcador del proyecto.
 
-## Semantic worker
+## Semantic worker y orquestación de compute
 
-No hay auto-dispatch de worker por defecto. Para dejar un worker aprobado disponible, usar una configuración guardada fuera del proyecto:
+Para dejar un worker aprobado disponible, usar una configuración guardada fuera del proyecto:
 
 ```bash
 io-delegation setup --project . --worker-config /ruta/privada/worker.json
 ```
 
-Eso **no** activa el despacho automático. El path experimental exige además `"context_auto_dispatch": true` dentro de la configuración revisada. `status` y `doctor` muestran por separado si el worker está configurado y si ese opt-in está activo.
+Con un worker aprobado, setup usa `--orchestration auto` por defecto. Esto **no** significa enviar todo al worker: sólo candidatos factuales/bulk llegan al scorer Jev; thresholds locales de riesgo/suficiencia permiten como máximo un intento T1 barato, y evidencia inválida/incompleta escala al principal T2. Si falta `TYPESAFE_API_KEY`, el scorer falla cerrado a T2 y el worker no se despacha.
 
-Para deshabilitar uno existente:
+Control explícito y persistente:
+
+```bash
+io-delegation setup --project . --orchestration off
+io-delegation setup --project . --orchestration on
+```
+
+El path histórico de auto-dispatch incondicional sigue separado y exige `"context_auto_dispatch": true`. Un `compute_profiles.cheap` opcional puede seleccionar un modelo/effort barato dentro del mismo adapter ya aprobado. Ver [ORCHESTRATION.md](../skills/io-delegation/references/ORCHESTRATION.md).
+
+Para deshabilitar el worker existente:
 
 ```bash
 io-delegation setup --project . --no-worker
@@ -136,7 +145,7 @@ io-delegation status --project .
 io-delegation doctor --project .
 ```
 
-`doctor` verifica marcador, runtime, registro MCP, skill, audit y un handshake MCP real con `tools/list`. No llama a Jev ni al worker.
+`doctor` verifica marcador, runtime, registro MCP, skill, audit, configs de routing/orchestration/compaction y un handshake MCP real con `tools/list`. No llama a Jev ni al worker.
 
 Una credencial configurada pero ausente se reporta como warning. Si Claude Code no está instalado, su registro user-scope queda pendiente y también se informa como warning.
 

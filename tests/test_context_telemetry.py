@@ -41,6 +41,32 @@ class TelemetryTests(unittest.TestCase):
         es=[dict(schema='io-context/v1',operation_id='x',event='operation_started',operation='semantic_query'),
             dict(schema='io-context/v1',operation_id='x',event='operation_completed',operation='semantic_query',cache='hit',model_calls=0,result_bytes=50)]
         r=operations(self.log('ops',es));self.assertEqual(r['cache_hits'],1);self.assertEqual(r['model_calls'],0)
+    def test_operations_account_for_router_and_orchestrator_tokens(self):
+        rows=[
+            dict(schema='io-context/v1',operation_id='x',event='operation_started',operation='query'),
+            dict(schema='io-context/v1',operation_id='x',event='operation_completed',operation='query',
+                 cache='disabled',model_calls=1,result_bytes=50,router_calls=1,
+                 router_input_tokens=10,router_output_tokens=2,orchestrator_calls=1,
+                 orchestrator_input_tokens=8,orchestrator_output_tokens=2,
+                 compute_tier='T1',escalated=False)
+        ]
+        r=operations(self.log('ops-control',rows))
+        self.assertEqual(r['control_tokens'],22)
+        self.assertTrue(r['control_usage_complete'])
+        self.assertEqual(r['orchestrator_calls'],1)
+        self.assertEqual(r['compute_tiers'],{'T1':1})
+
+    def test_missing_orchestrator_usage_is_not_free(self):
+        rows=[
+            dict(schema='io-context/v1',operation_id='x',event='operation_started',operation='query'),
+            dict(schema='io-context/v1',operation_id='x',event='operation_completed',operation='query',
+                 cache='disabled',model_calls=0,result_bytes=50,orchestrator_calls=1,
+                 orchestrator_input_tokens=None,orchestrator_output_tokens=None,compute_tier='T2')
+        ]
+        r=operations(self.log('ops-unknown-control',rows))
+        self.assertFalse(r['control_usage_complete'])
+        self.assertIsNone(r['control_tokens'])
+
     def test_semantic_without_operation_records_incomplete(self):
         main=self.log('main',[dict(type='item.completed',item=dict(id='x',type='mcp_tool_call',tool='semantic_query')),self.completed(input_tokens=20,output_tokens=5)])
         r=combined(main,self.root);self.assertFalse(r['system_accounting_complete']);self.assertIsNone(r['system_raw_tokens'])

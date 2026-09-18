@@ -1,0 +1,28 @@
+{
+  "schema": "io-orchestration-ab/v1",
+  "description": "Fill with paired real-host measurements for the same task/commit. Token totals must include all reported usage; never substitute zero for unknown usage.",
+  "pairs": [
+    {
+      "id": "example-task:r1",
+      "family": "replace-with-real-family",
+      "baseline": {
+        "quality_pass": true,
+        "accounting_complete": true,
+        "principal_tokens": 0,
+        "worker_tokens": 0,
+        "control_tokens": 0,
+        "wall_ms": 0
+      },
+      "orchestrated": {
+        "quality_pass": true,
+        "accounting_complete": true,
+        "principal_tokens": 0,
+        "worker_tokens": 0,
+        "control_tokens": 0,
+        "wall_ms": 0
+      },
+      "tier": "T1",
+      "escalated": false
+    }
+  ]
+}

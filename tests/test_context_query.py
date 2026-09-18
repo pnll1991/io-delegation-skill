@@ -45,11 +45,14 @@ class QueryTests(unittest.TestCase):
         self.router.write_text(json.dumps(dict(version=1,approved=True,provider='typesafe',
             model='jev-latest',api_key_env='TYPESAFE_API_KEY',timeout_seconds=5,
             min_confidence=.75,url='http://127.0.0.1:8765/mock')))
+        self.orchestrator=self.base/'orchestrator.json'
+        self.orchestrator.write_text(self.router.read_text())
         self.sel=[dict(path='a.py',select=dict(kind='lines',start=1,end=1))]
 
-    def service(self, worker=None):
+    def service(self, worker=None, orchestrator=None):
         return ContextService(self.root,self.audit,files=['a.py','b.py','c.py'],
-                              config=worker,router_config=self.router)
+                              config=worker,router_config=self.router,
+                              orchestrator_config=orchestrator)
 
     def call(self, service, **extra):
         args=dict(selections=self.sel,question='Review this evidence',operation='factual')
@@ -103,6 +106,71 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['reason'],'semantic_worker_opt_in_required')
         self.assertEqual(result['model_calls'],0)
         self.assertEqual(invoke.call_count,0)
+
+    def test_orchestrator_dispatches_cheap_worker_without_legacy_auto_dispatch(self):
+        worker=self.base/'worker-cheap.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=[sys.executable,'-c','pass'],timeout_seconds=5)))
+        service=self.service(worker,self.orchestrator)
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:dict(
+            status='ok',model='jev-test',tier='T1',decision='cheap_worker',
+            reason='cheap_first_policy',scores=dict(cheap_model_sufficient=.95,risk_high=.05,
+            uncertainty_high=.05,reasoning_required=.05,parallelism_useful=.2),
+            usage=dict(input_tokens=40,output_tokens=8),elapsed_ms=7)
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        with patch('io_delegate.invoke',side_effect=worker_reply) as invoke:
+            result=self.call(service)
+        self.assertEqual(result['route'],'bulk_read')
+        self.assertEqual(result['orchestration']['initial_tier'],'T1')
+        self.assertFalse(result['orchestration']['escalated'])
+        self.assertEqual(result['model_calls'],1)
+        self.assertEqual(invoke.call_count,1)
+
+    def test_invalid_cheap_result_escalates_to_principal(self):
+        worker=self.base/'worker-escalate.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=[sys.executable,'-c','pass'],timeout_seconds=5)))
+        service=self.service(worker,self.orchestrator)
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:dict(
+            status='ok',model='jev-test',tier='T1',decision='cheap_worker',
+            reason='cheap_first_policy',scores=dict(cheap_model_sufficient=.95,risk_high=.05,
+            uncertainty_high=.05,reasoning_required=.05,parallelism_useful=.2),
+            usage=dict(input_tokens=40,output_tokens=8),elapsed_ms=7)
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        def insufficient(job,cfg,root,record):
+            record('worker_dispatched',adapter='test',model='cheap')
+            usage=dict(input_tokens=30,output_tokens=8,cached_input_tokens=0,
+                       cache_write_input_tokens=0,reasoning_output_tokens=0)
+            record('worker_response',usage=usage,usage_complete=True)
+            return json.dumps(dict(status='insufficient_context',findings=[],unknowns=['missing'],
+                                   read_paths=[])),dict(usage=usage)
+        with patch('io_delegate.invoke',side_effect=insufficient) as invoke:
+            result=self.call(service)
+        self.assertEqual(result['route'],'principal')
+        self.assertEqual(result['reason'],'cheap_worker_escalation')
+        self.assertTrue(result['orchestration']['escalated'])
+        self.assertEqual(result['orchestration']['tier'],'T2')
+        self.assertEqual(result['model_calls'],1)
+        self.assertEqual(invoke.call_count,1)
+
+    def test_compute_gate_can_skip_worker_and_go_directly_to_principal(self):
+        worker=self.base/'worker-gated.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=[sys.executable,'-c','pass'],timeout_seconds=5)))
+        service=self.service(worker,self.orchestrator)
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:dict(
+            status='ok',model='jev-test',tier='T2',decision='principal',
+            reason='compute_gate_rejected',scores=dict(cheap_model_sufficient=.2,risk_high=.7,
+            uncertainty_high=.6,reasoning_required=.8,parallelism_useful=.1),
+            usage=dict(input_tokens=40,output_tokens=8),elapsed_ms=7)
+        with patch('io_delegate.invoke',side_effect=AssertionError('worker should not run')):
+            result=self.call(service)
+        self.assertEqual(result['route'],'principal')
+        self.assertEqual(result['model_calls'],0)
+        self.assertEqual(result['orchestration']['initial_tier'],'T2')
 
     def test_real_loopback_router_call_uses_metadata_and_routes_principal(self):
         captured=[]

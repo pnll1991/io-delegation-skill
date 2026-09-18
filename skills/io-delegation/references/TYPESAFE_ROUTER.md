@@ -127,6 +127,10 @@ Example output shape:
 
 If Choice confidence is below `min_confidence`, `route` becomes `current_rules` while `model_route` preserves Jev's raw choice for measurement.
 
+## Separate compute orchestration
+
+The route selector above remains experimental and opt-in. I/O Delegation now also has a distinct Jev **compute scorer** for cheap-first execution after local routing already identifies a bulk factual candidate. It returns bounded sufficiency/risk/uncertainty/reasoning probabilities; deterministic local thresholds choose T1 cheap worker or T2 principal. It does not enable the route selector, invent a provider/model, or weaken worker approval. See [ORCHESTRATION.md](ORCHESTRATION.md).
+
 ## Intended skill behavior
 
 Use the router only after localization and only when ordinary rules do not make the route obvious. Obvious deterministic searches, small bounded reads, security-sensitive work, exact edits and known debugging paths should not pay for an extra model call.

@@ -98,11 +98,13 @@ def configured_serve(root, state):
     from context_mcp import ContextService, serve
     worker = state.get('worker_config')
     router = state.get('router_config')
+    orchestrator = state.get('orchestrator_config')
     service = ContextService(root, Path(state['audit_root']),
                              prefixes=state.get('allow_prefixes', ()),
                              files=state.get('allow_files', ()),
                              config=Path(worker) if worker else None,
-                             router_config=Path(router) if router else None)
+                             router_config=Path(router) if router else None,
+                             orchestrator_config=Path(orchestrator) if orchestrator else None)
     return serve(service)
 
 

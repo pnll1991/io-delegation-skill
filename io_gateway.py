@@ -21,6 +21,7 @@ SERVER_NAME = 'io_context'
 STATE_VERSION = 2
 DEFAULT_JEV_SETUP_MODE = 'off'
 DEFAULT_COMPACTION_SETUP_MODE = 'on'
+DEFAULT_ORCHESTRATION_SETUP_MODE = 'auto'
 COMPACTION_PLUGIN_NAME = 'io-delegation-jev-compaction'
 COMPACTION_PLUGIN_REF = 'io-delegation-jev-compaction@io-delegation'
 COMPACTION_MARKETPLACE = 'pnll1991/io-delegation-skill'
@@ -264,6 +265,20 @@ def external_file(root, value, label):
     return path
 
 
+def remove_generated_config(path):
+    if not path:
+        return False
+    candidate=Path(path)
+    try:
+        candidate.resolve().relative_to(configs_dir().resolve())
+    except (ValueError,OSError):
+        return False
+    if candidate.is_file():
+        candidate.unlink()
+        return True
+    return False
+
+
 def router_enabled(mode, env_name):
     return mode == 'on' or (mode == 'auto' and bool(os.environ.get(env_name)))
 
@@ -287,6 +302,31 @@ def make_router_config(root, project_id, mode, env_name, supplied=None, dry_run=
     sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import decision_router
     decision_router.load_config(str(path)); return path, True
 
+
+
+def make_orchestrator_config(project_id, mode, env_name, worker, dry_run=False):
+    if mode not in ('auto','on','off'):
+        raise ValueError('Unknown orchestration mode')
+    if mode == 'on' and not worker:
+        raise ValueError('--orchestration on requires an approved --worker-config')
+    if mode == 'off' or not worker:
+        return None, False
+    path=configs_dir()/f'{project_id}.orchestrator.json'
+    if dry_run:
+        return path, True
+    data={'version':1,'approved':True,'provider':'typesafe','model':'jev-latest',
+          'api_key_env':env_name,'timeout_seconds':10,'min_confidence':.75,
+          'compute_policy':{
+              'cheap_sufficient_min':.78,
+              'risk_high_max':.30,
+              'uncertainty_high_max':.35,
+              'reasoning_required_max':.40,
+              'max_cheap_output_tokens':900,
+          }}
+    atomic_write(path, encoded(data))
+    sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import context_orchestrator
+    context_orchestrator.load_config(str(path))
+    return path, True
 
 
 def compaction_policy_path(root):
@@ -404,6 +444,10 @@ def env_names_for_state(state):
     if state.get('router_config'):
         import decision_router
         cfg=decision_router.load_config(state['router_config'])
+        names.append(cfg['api_key_env'])
+    if state.get('orchestrator_config'):
+        import context_orchestrator
+        cfg=context_orchestrator.load_config(state['orchestrator_config'])
         names.append(cfg['api_key_env'])
     if state.get('compaction_mode') == 'on':
         name=state.get('compaction_api_key_env','TYPESAFE_API_KEY')
@@ -679,7 +723,8 @@ def optional_state(root):
     except ValueError: return None
 
 
-def credential_names(worker, router, generated_router_env=None, compaction_env=None):
+def credential_names(worker, router, generated_router_env=None, compaction_env=None,
+                     orchestrator=None, generated_orchestrator_env=None):
     names=[]; sys.path.insert(0,str(SKILL_SOURCE/'scripts'))
     if worker:
         import io_delegate
@@ -691,6 +736,11 @@ def credential_names(worker, router, generated_router_env=None, compaction_env=N
     elif generated_router_env:
         names.append(generated_router_env)
     if compaction_env: names.append(compaction_env)
+    if orchestrator and Path(orchestrator).is_file():
+        import context_orchestrator
+        names.append(context_orchestrator.load_config(str(orchestrator))['api_key_env'])
+    elif generated_orchestrator_env:
+        names.append(generated_orchestrator_env)
     return list(dict.fromkeys(names))
 
 
@@ -702,6 +752,16 @@ def compaction_setup_mode(args,existing):
         if preference in ('on','off'):
             return preference
     return DEFAULT_COMPACTION_SETUP_MODE
+
+
+def orchestration_setup_mode(args,existing):
+    if args.orchestration is not None:
+        return args.orchestration
+    if existing:
+        preference=existing.get('orchestration_preference')
+        if preference in ('auto','on','off'):
+            return preference
+    return DEFAULT_ORCHESTRATION_SETUP_MODE
 
 
 def setup_choices(root,args,existing):
@@ -723,7 +783,8 @@ def setup_choices(root,args,existing):
     else:
         router_mode=args.jev or DEFAULT_JEV_SETUP_MODE; router_source=None
     compaction=compaction_setup_mode(args,existing)
-    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction
+    orchestration=orchestration_setup_mode(args,existing)
+    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction,orchestration
 
 
 def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=False):
@@ -731,6 +792,8 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
     plan={'project':str(root),'project_id':state['project_id'],'agents':state['agents'],
           'scope':{'prefixes':state['allow_prefixes'],'files':state['allow_files']},
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
+          'compute_orchestration':bool(state.get('orchestrator_config')),
+          'orchestration_preference':state.get('orchestration_preference','auto'),
           'jev_compaction':state.get('compaction_mode')=='on',
           'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
           'worker_auto_dispatch':dispatch,
@@ -742,6 +805,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
+    print('Compute orchestration: '+('cheap-first' if state.get('orchestrator_config') else 'off'))
     print('Compaction: '+('automatic (project-scoped: '+', '.join(state.get('compaction_hosts',[]))+')' if state.get('compaction_mode')=='on' else 'off'))
     if state.get('worker_config'):
         print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
@@ -756,7 +820,7 @@ def command_setup(args):
     root=Path(args.project).expanduser().resolve(strict=True)
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
-    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction=setup_choices(root,args,existing)
+    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction,orchestration=setup_choices(root,args,existing)
     old_compaction_hosts=configured_compaction_hosts(existing)
 
     # Phase 1: resolve and validate the complete plan without writing anything.
@@ -767,13 +831,17 @@ def command_setup(args):
                                                     router_source,dry_run=True)
     if existing and args.jev is None and not args.router_config and router_plan and str(router_plan)==existing.get('router_config'):
         router_generated=bool(existing.get('router_generated'))
+    orchestrator_plan,orchestrator_generated=make_orchestrator_config(
+        project_id,orchestration,args.typesafe_env,worker,dry_run=True)
     compaction_policy,compaction_policy_action=sync_compaction_policy(
         root,compaction,args.typesafe_env,agents,dry_run=True)
     claude_compaction=compaction=='on' and 'claude-code' in agents
     compaction_plugin_action=ensure_claude_compaction_plugin(dry_run=True) if claude_compaction else 'off'
     function_hooks_action=ensure_claude_function_hooks_flag(dry_run=True) if claude_compaction else 'off'
-    credentials=credential_names(worker,router_plan,args.typesafe_env if router_generated else None,
-                                 args.typesafe_env if compaction=='on' else None)
+    credentials=credential_names(
+        worker,router_plan,args.typesafe_env if router_generated else None,
+        args.typesafe_env if compaction=='on' else None,
+        orchestrator_plan,args.typesafe_env if orchestrator_generated else None)
     skill_actions={}
     for agent in agents:
         _,skill_actions[agent]=install_skill(root,agent,args.update,dry_run=True)
@@ -781,7 +849,11 @@ def command_setup(args):
     state={'version':STATE_VERSION,'project':str(root),'project_id':project_id,'agents':agents,
            'audit_root':str(audit),'allow_prefixes':prefixes,'allow_files':files,
            'worker_config':str(worker) if worker else None,'router_config':str(router_plan) if router_plan else None,
-           'router_generated':bool(router_generated),'credential_env_names':credentials,
+           'router_generated':bool(router_generated),
+           'orchestrator_config':str(orchestrator_plan) if orchestrator_plan else None,
+           'orchestrator_generated':bool(orchestrator_generated),
+           'orchestration_preference':orchestration,
+           'credential_env_names':credentials,
            'compaction_mode':compaction,
            'compaction_preference':compaction,
            'compaction_hosts':agents if compaction=='on' else [],
@@ -803,6 +875,7 @@ def command_setup(args):
                  'codex_mcp':global_actions['codex'][1],
                  'cursor_mcp':global_actions['cursor'][1],
                  'claude_mcp':global_actions['claude-code'][1],
+                 'orchestrator_config':'write' if orchestrator_generated else 'off',
                  'compaction_policy':compaction_policy_action,
                  'compaction_plugin':compaction_plugin_action,
                  'claude_function_hooks':function_hooks_action}
@@ -819,11 +892,22 @@ def command_setup(args):
         ensure_claude_function_hooks_flag(dry_run=False)
     router,router_generated=make_router_config(root,project_id,router_mode,args.typesafe_env,
                                                router_source,dry_run=False)
+    previous_orchestrator_path=(Path(existing['orchestrator_config'])
+                                if existing and existing.get('orchestrator_generated')
+                                and existing.get('orchestrator_config') else None)
+    previous_orchestrator_bytes=(previous_orchestrator_path.read_bytes()
+                                 if previous_orchestrator_path and previous_orchestrator_path.is_file()
+                                 else None)
+    orchestrator,orchestrator_generated=make_orchestrator_config(
+        project_id,orchestration,args.typesafe_env,worker,dry_run=False)
     state['router_config']=str(router) if router else None
     state['router_generated']=bool(router_generated)
+    state['orchestrator_config']=str(orchestrator) if orchestrator else None
+    state['orchestrator_generated']=bool(orchestrator_generated)
     state['credential_env_names']=credential_names(
         worker,router,args.typesafe_env if router_generated else None,
-        args.typesafe_env if compaction=='on' else None)
+        args.typesafe_env if compaction=='on' else None,
+        orchestrator,args.typesafe_env if orchestrator_generated else None)
     for agent in agents:
         install_skill(root,agent,args.update,dry_run=False)
     audit.mkdir(parents=True,exist_ok=True)
@@ -842,6 +926,9 @@ def command_setup(args):
             allow_tracked=args.allow_tracked_config)
         sync_compaction_policy(root,compaction,args.typesafe_env,agents,dry_run=False)
         save_state(state)
+        if (existing and existing.get('orchestrator_generated')
+                and existing.get('orchestrator_config') != state.get('orchestrator_config')):
+            remove_generated_config(existing.get('orchestrator_config'))
     except Exception:
         # Restore state/global registration. The global compaction plugin may
         # remain installed, but without a project policy it is inert.
@@ -859,12 +946,22 @@ def command_setup(args):
                 atomic_write(previous_path,previous_bytes)
             elif path.is_file(): path.unlink()
             sync_global_mcp(all_states(exclude_id=project_id),replace=False)
+            if orchestrator_generated and orchestrator:
+                current_orchestrator=Path(orchestrator)
+                if (previous_orchestrator_path
+                        and current_orchestrator == previous_orchestrator_path
+                        and previous_orchestrator_bytes is not None):
+                    atomic_write(previous_orchestrator_path,previous_orchestrator_bytes)
+                elif (not previous_orchestrator_path
+                      or current_orchestrator != previous_orchestrator_path):
+                    remove_generated_config(current_orchestrator)
         except Exception: pass
         raise
     print(f'I/O Delegation ready for {root}')
     print('Agents: '+', '.join(agents))
     print(f'Context scope: {len(prefixes)} folders + {len(files)} root files')
     print('Smart routing: '+('TypeSafe Jev' if router else 'local rules'))
+    print('Compute orchestration: '+('Jev cheap-first' if orchestrator else 'off'))
     print('Jev compaction: '+('automatic for '+', '.join(agents) if compaction=='on' else 'off'))
     print('Semantic worker: '+('configured' if worker else 'off'))
     print('Read guard: '+guard)
@@ -935,6 +1032,8 @@ def command_remove(args):
         except ValueError: pass
         else:
             if candidate.is_file(): candidate.unlink()
+    if state.get('orchestrator_generated') and state.get('orchestrator_config'):
+        remove_generated_config(state.get('orchestrator_config'))
     if args.purge_data: shutil.rmtree(state.get('audit_root',''),ignore_errors=True)
     if args.purge_runtime and not remaining: shutil.rmtree(USER_ROOT/'runtime',ignore_errors=True)
     print(f'I/O Delegation removed from {root}')
@@ -982,9 +1081,15 @@ def audit_summary(state):
     routes={}
     for row in rows:
         route=row.get('route','unknown'); routes[route]=routes.get(route,0)+1
-    return {'operations':len(rows),'routes':routes,
+    tiers={}
+    for row in rows:
+        tier=row.get('compute_tier')
+        if tier: tiers[tier]=tiers.get(tier,0)+1
+    return {'operations':len(rows),'routes':routes,'compute_tiers':tiers,
             'model_calls':sum(int(r.get('model_calls',0) or 0) for r in rows),
             'router_calls':sum(int(r.get('router_calls',0) or 0) for r in rows),
+            'orchestrator_calls':sum(int(r.get('orchestrator_calls',0) or 0) for r in rows),
+            'escalations':sum(r.get('escalated') is True for r in rows),
             'errors':sum(r.get('status') not in ('ok','insufficient_context') for r in rows),
             'cache_hits':sum(r.get('cache')=='hit' for r in rows)}
 
@@ -1023,6 +1128,8 @@ def status_data(root):
             'moved':str(root)!=state.get('project'),'agents':{a:registration_present(a) for a in state.get('agents',[])},
             'scope':{'prefixes':state.get('allow_prefixes',[]),'files':state.get('allow_files',[])},
             'runtime':runtime_bootstrap().is_file(),'smart_routing':bool(state.get('router_config')),
+            'compute_orchestration':bool(state.get('orchestrator_config')),
+            'orchestration_preference':state.get('orchestration_preference','auto'),
             'jev_compaction':state.get('compaction_mode')=='on',
             'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
             'compaction_hosts':configured_compaction_hosts(state),
@@ -1050,6 +1157,7 @@ def command_status(args):
     print(f"Context scope {len(data['scope']['prefixes'])} folders + {len(data['scope']['files'])} files")
     print('Runtime       '+('ready' if data['runtime'] else 'missing'))
     print('Jev router    '+('enabled' if data['smart_routing'] else 'off'))
+    print('Compute       '+('cheap-first' if data['compute_orchestration'] else 'off'))
     if data['jev_compaction']:
         detail=', '.join(f"{a}:{'ready' if ok else 'missing'}" for a,ok in data['compaction_adapters'].items())
         print('Compaction    automatic | '+detail)
@@ -1062,7 +1170,7 @@ def command_status(args):
         print('Worker        off')
     print('Read guard    '+str(data['guard']))
     print('Activation    '+str(data['activation_mode']))
-    a=data['audit']; print(f"Activity      {a['operations']} ops | {a['router_calls']} routed | {a['model_calls']} worker calls | {a['errors']} errors")
+    a=data['audit']; print(f"Activity      {a['operations']} ops | {a['router_calls']} routed | {a['orchestrator_calls']} compute | {a['model_calls']} worker calls | {a['escalations']} escalations | {a['errors']} errors")
     if a['routes']: print('Routes        '+', '.join(f'{k}:{v}' for k,v in sorted(a['routes'].items())))
     return 0
 
@@ -1112,6 +1220,16 @@ def command_doctor(args):
             cfg=decision_router.load_config(state['router_config']); key=cfg['api_key_env']
             add('Jev config','pass',state['router_config']); add('Jev key','pass' if os.environ.get(key) else 'warn',key)
         except Exception as exc: add('Jev config','fail',str(exc))
+    if state.get('orchestrator_config'):
+        try:
+            sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import context_orchestrator
+            cfg=context_orchestrator.load_config(state['orchestrator_config']); key=cfg['api_key_env']
+            add('Jev compute orchestration','pass',state['orchestrator_config'])
+            add('Jev compute key','pass' if os.environ.get(key) else 'warn',key)
+            add('cheap-first worker','pass' if state.get('worker_config') else 'fail',
+                state.get('worker_config') or 'missing')
+        except Exception as exc:
+            add('Jev compute orchestration','fail',str(exc))
     if state.get('compaction_mode') == 'on':
         policy=read_json(compaction_policy_path(root),{})
         valid=(isinstance(policy,dict) and policy.get('version')==1 and policy.get('enabled') is True and
@@ -1165,6 +1283,8 @@ def build_parser():
     setup.add_argument('--allow-prefix',action='append'); setup.add_argument('--allow-file',action='append')
     setup.add_argument('--worker-config'); setup.add_argument('--no-worker',action='store_true')
     setup.add_argument('--router-config'); setup.add_argument('--jev',choices=['auto','on','off'],default=None)
+    setup.add_argument('--orchestration',choices=['auto','on','off'],default=None,
+                       help='cheap-first Jev model orchestration; auto enables it when a worker is configured')
     setup.add_argument('--compaction',choices=['on','off'],default=None,
                        help='automatic by default; off is a persistent per-project override')
     setup.add_argument('--typesafe-env',default='TYPESAFE_API_KEY')

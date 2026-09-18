@@ -59,6 +59,26 @@ class WorkerTests(unittest.TestCase):
         for adapter in ('codex-cli','chat-completions'):
             cfg=self.root/'bad.json'; cfg.write_text(json.dumps(dict(approved=True,adapter=adapter,model='YOUR_MODEL',url='http://127.0.0.1/x')))
             with self.assertRaises(d.DelegateError): d.load_config(str(cfg))
+    def test_codex_compute_profile_is_validated(self):
+        cfg=self.root/'codex-profile.json'
+        cfg.write_text(json.dumps(dict(approved=True,adapter='codex-cli',model='strong-model',
+            reasoning_effort='medium',compute_profiles={'cheap':{
+                'model':'cheap-model','reasoning_effort':'low'}})))
+        row=d.load_config(str(cfg))
+        self.assertEqual(row['compute_profiles']['cheap']['model'],'cheap-model')
+
+    def test_opaque_command_compute_profile_rejected(self):
+        cfg=self.cfg('pass',compute_profiles={'cheap':{'model':'cheap-model'}})
+        with self.assertRaises(d.DelegateError):
+            d.load_config(str(cfg))
+
+    def test_codex_compute_profile_rejects_fake_hard_output_cap(self):
+        cfg=self.root/'codex-bad-profile.json'
+        cfg.write_text(json.dumps(dict(approved=True,adapter='codex-cli',model='strong-model',
+            compute_profiles={'cheap':{'model':'cheap-model','max_output_tokens':800}})))
+        with self.assertRaises(d.DelegateError):
+            d.load_config(str(cfg))
+
     def test_invalid_evidence_retains_usage(self):
         r=self.response(); a=json.loads(r['output']); a['findings'][0]['evidence']='not here'; r['output']=json.dumps(a)
         rc,_,_,u=self.invoke(self.cfg('print('+repr(json.dumps(r))+')'))

@@ -224,6 +224,32 @@ def load_config(path: str) -> dict[str, Any]:
             raise DelegateError('api_key_env debe nombrar una variable de entorno.')
         if key_env and not os.environ.get(key_env):
             raise DelegateError('Falta la variable de entorno configurada para la API key.')
+    profiles = cfg.get('compute_profiles')
+    if profiles is not None:
+        if not isinstance(profiles, dict) or set(profiles) - {'cheap'}:
+            raise DelegateError('compute_profiles sólo admite el perfil cheap.')
+        cheap = profiles.get('cheap')
+        if not isinstance(cheap, dict):
+            raise DelegateError('compute_profiles.cheap debe ser un objeto.')
+        if set(cheap) - {'model','reasoning_effort','max_output_tokens'}:
+            raise DelegateError('Opción desconocida en compute_profiles.cheap.')
+        if cfg['adapter'] == 'command':
+            raise DelegateError('Un worker command opaco no puede cambiar perfiles de modelo.')
+        model = cheap.get('model', cfg.get('model'))
+        if not isinstance(model, str) or not model.strip() or any(x in model.upper() for x in ('REEMPLAZAR','YOUR_','<','>')):
+            raise DelegateError('El perfil cheap requiere un modelo real.')
+        if cfg['adapter'] == 'codex-cli':
+            if cheap.get('reasoning_effort', cfg.get('reasoning_effort','low')) not in ('low','medium','high'):
+                raise DelegateError('cheap reasoning_effort debe ser low, medium o high.')
+            if 'max_output_tokens' in cheap:
+                raise DelegateError('Codex CLI no expone un hard cap portable de output tokens.')
+        else:
+            if 'reasoning_effort' in cheap:
+                raise DelegateError('reasoning_effort no es portable en chat-completions.')
+            if 'max_output_tokens' in cheap:
+                value=cheap['max_output_tokens']
+                if type(value) is not int or not 64 <= value <= 4096:
+                    raise DelegateError('cheap max_output_tokens debe estar entre 64 y 4096.')
     return cfg
 
 

@@ -68,3 +68,27 @@ Estas pruebas requieren sesiones reales con el agente y el auxiliar elegidos. Es
 ## Criterio de publicación
 
 Separar cuatro afirmaciones: formato correcto, tests de infraestructura aprobados, funcionamiento real de cada integración y ahorro medido. Las dos primeras no demuestran las dos últimas. Conservar resultados negativos; la skill no debe convertirse en una invitación a delegar todo.
+
+
+## Cheap-first orchestration A/B
+
+Evaluate Jev compute orchestration with paired real-host tasks on the same commit, principal model, permissions, scope and validators. The primary efficiency metric is **system tokens per quality-passing task**:
+
+```text
+principal tokens + worker tokens + Jev routing/orchestration tokens
+```
+
+Do not treat missing usage as zero. A failed or rejected T1 attempt is charged and an escalation remains part of the orchestrated arm.
+
+Use the evidence template and evaluator:
+
+```bash
+cp benchmarks/v1-validation/orchestration_ab.template.json /private/orchestration-ab.json
+python benchmarks/v1-validation/orchestration_ab.py --input /private/orchestration-ab.json
+```
+
+The conservative release gate requires at least 20 comparable quality-passing pairs, no baseline-pass/orchestrated-fail quality regressions, complete accounting for every pair, at least one T1 case, and at least 10% median system-token savings. The gate is deliberately stricter than a principal-context-only comparison.
+
+Record T0/T1/T2, escalation, wall time and task family. Include multi-file factual cases, small negative controls and risk-sensitive cases that should remain T2. The scorer itself must be charged through its reported usage.
+
+This evaluator does not execute providers or invent missing measurements. Live evidence should be generated separately and preserved under `benchmarks/v1-validation/evidence/` only after secret review.

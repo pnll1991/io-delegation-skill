@@ -25,7 +25,8 @@ def implementation_hash():
     h = hashlib.sha256()
     folder = Path(__file__).resolve().parent
     for name in ('context_sources.py','context_ops.py','context_selection.py','context_engine.py',
-                 'context_cache.py','context_mcp.py','context_backend.py','context_budget.py','io_delegate.py','worker_runtime.py'):
+                 'context_orchestrator.py','context_cache.py','context_mcp.py','context_backend.py',
+                 'context_budget.py','io_delegate.py','worker_runtime.py'):
         p = folder/name
         h.update(name.encode());h.update(p.read_bytes())
     return h.hexdigest()

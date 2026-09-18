@@ -109,16 +109,35 @@ def operations(path):
             if iid in done and e!=done[iid]:invalid+=1
             done[iid]=e
         else:invalid+=1
-    counts={};cache_hits=source=selected=returned=dispatch=0
+    counts={};tiers={};cache_hits=source=selected=returned=dispatch=orchestrator_calls=escalations=0
+    control_tokens=0;control_usage_complete=True
     for e in done.values():
         key=e.get('operation');counts[key]=counts.get(key,0)+1
         cache_hits+=e.get('cache')=='hit'
-        for k in ('source_bytes','selected_bytes','result_bytes','model_calls'):
+        for k in ('source_bytes','selected_bytes','result_bytes','model_calls','router_calls','orchestrator_calls'):
             if k in e and (type(e[k]) is not int or e[k]<0):invalid+=1
         source+=e.get('source_bytes',0);selected+=e.get('selected_bytes',0)
         returned+=e.get('result_bytes',0);dispatch+=e.get('model_calls',0)
+        orchestrator_calls+=e.get('orchestrator_calls',0)
+        if 'escalated' in e and type(e['escalated']) is not bool:invalid+=1
+        escalations+=e.get('escalated') is True
+        tier=e.get('compute_tier')
+        if tier is not None:
+            if tier not in ('T0','T1','T2'):invalid+=1
+            else:tiers[tier]=tiers.get(tier,0)+1
+        for prefix in ('router','orchestrator'):
+            calls=e.get(prefix+'_calls',0)
+            if calls:
+                inp=e.get(prefix+'_input_tokens');out=e.get(prefix+'_output_tokens')
+                if type(inp) is int and inp>=0 and type(out) is int and out>=0:
+                    control_tokens+=inp+out
+                else:
+                    control_usage_complete=False
     return dict(counts=counts,completed=len(done),cache_hits=cache_hits,source_bytes=source,
                 selected_bytes=selected,result_bytes=returned,model_calls=dispatch,
+                orchestrator_calls=orchestrator_calls,escalations=escalations,compute_tiers=tiers,
+                control_tokens=control_tokens if control_usage_complete else None,
+                control_usage_complete=control_usage_complete,
                 complete=not invalid and started==set(done),invalid_records=invalid,
                 byte_counts_are_not_tokens=True)
 
@@ -127,9 +146,12 @@ def combined(main_path, audit_root):
     audit=Path(audit_root)
     main=trajectory(main_path);worker=workers(audit/'.io-delegation/worker-events.jsonl')
     ops=operations(audit/'context-events.jsonl')
-    complete=main['usage_complete'] and worker['accounting_complete'] and ops['complete'] and not main['native_subagent_items']
+    complete=(main['usage_complete'] and worker['accounting_complete'] and ops['complete']
+              and ops['control_usage_complete'] and not main['native_subagent_items'])
     # A semantic tool can legitimately hit cache; use the operation journal, not tool count, for dispatch.
     if ops['model_calls']!=worker['calls']:complete=False
     if main['semantic_tool_items'] and ops['counts'].get('semantic_query',0)<main['semantic_tool_items']:complete=False
-    raw=main['raw_tokens']+worker['raw_tokens'] if complete and main['raw_tokens'] is not None and worker['raw_tokens'] is not None else None
+    raw=(main['raw_tokens']+worker['raw_tokens']+ops['control_tokens']
+         if complete and main['raw_tokens'] is not None and worker['raw_tokens'] is not None
+         and ops['control_tokens'] is not None else None)
     return dict(main=main,worker=worker,operations=ops,system_accounting_complete=bool(complete),system_raw_tokens=raw)

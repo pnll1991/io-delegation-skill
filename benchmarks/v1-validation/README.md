@@ -1,6 +1,6 @@
 # Context Gateway V1 validation
 
-This directory is the common evidence pipeline for dogfood, activation-gate measurement, repeated Jev A/B, semantic-worker isolation, three-host parity and release readiness.
+This directory is the common evidence pipeline for dogfood, activation-gate measurement, repeated Jev routing A/B, semantic-worker isolation, cheap-first compute orchestration A/B, three-host parity and release readiness.
 
 ## Rules
 
@@ -129,6 +129,16 @@ python benchmarks/v1-validation/paired.py <run-dir>/runs.jsonl \
 ```
 
 Failed/incomplete pairs are never used for efficiency deltas.
+
+## Cheap-first compute orchestration A/B
+
+The new T0/T1/T2 path is evaluated separately from both the Jev route-selector experiment and the unconditional semantic-worker experiment. Fill `orchestration_ab.template.json` with paired real-host measurements from the same task/commit and evaluate:
+
+```bash
+python benchmarks/v1-validation/orchestration_ab.py --input <private-paired-evidence.json>
+```
+
+The measured system-token total is principal + worker + Jev control-plane tokens. Missing usage is never zero. A conservative gate requires at least 20 comparable quality-passing pairs, no quality regressions, complete accounting, at least one T1 case and >=10% median system-token savings. This evaluator does not execute providers.
 
 ## Authenticated host parity
 
