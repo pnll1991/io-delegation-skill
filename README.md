@@ -220,7 +220,7 @@ python skills/io-delegation/scripts/io_delegate.py inspect --root . --paths inst
 python skills/io-delegation/scripts/io_delegate.py bulk-read --root . --paths install.py --question "Which directories can the installer write to?" --dry-run
 ```
 
-For real delegation, follow [ADAPTERS.md](skills/io-delegation/references/ADAPTERS.md). Supported transports are a compatible Chat Completions endpoint or a reviewed command using JSON over stdin/stdout. Nothing is enabled by default. Never publish real worker configuration or credentials.
+For real delegation, follow [ADAPTERS.md](skills/io-delegation/references/ADAPTERS.md). Supported transports include reviewed Codex/Cursor host CLIs, dedicated Codex/Cursor CLI workers, a compatible Chat Completions endpoint, or a reviewed command using JSON over stdin/stdout. Worker inference still requires an approved external configuration. Never publish real worker configuration or credentials.
 
 ## Repository map
 
