@@ -75,6 +75,17 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.assertFalse(gate['pass'])
         self.assertFalse(gate['runner_isolation'])
 
+    def test_worker_causal_gate_uses_worker_isolation_contract(self):
+        rows=[row('w','worker-eligible','direct-selected'),
+              row('w','worker-eligible','semantic-worker',worker=1,route='bulk_read')]
+        for item in rows: item['tags']=['worker-isolation','jev-disabled','same-selected-bundle']
+        _,gate=mod.causal_gate(rows,'direct-selected','semantic-worker',1,'worker')
+        self.assertTrue(gate['pass'])
+        self.assertEqual(gate['isolation_tag'],'worker-isolation')
+        rows[0]['tags']=[]
+        _,gate=mod.causal_gate(rows,'direct-selected','semantic-worker',1,'worker')
+        self.assertFalse(gate['pass'])
+
     def test_causal_gate_rejects_swapped_quality_regression(self):
         rows=[
             row('a','targeted','gateway-local',success=True),
@@ -122,7 +133,10 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 jev += [row(f'j{i}','targeted','gateway-local',rep=i+1),row(f'j{i}','targeted','gateway-jev',rep=i+1,router=True,tokens=90)]
             worker=[]
             for i in range(5):
-                worker += [row(f'w{i}','worker-eligible','direct-selected',rep=i+1),row(f'w{i}','worker-eligible','semantic-worker',rep=i+1,worker=1,tokens=90,route='bulk_read')]
+                left=row(f'w{i}','worker-eligible','direct-selected',rep=i+1)
+                right=row(f'w{i}','worker-eligible','semantic-worker',rep=i+1,worker=1,tokens=90,route='bulk_read')
+                left['tags']=right['tags']=['worker-isolation','jev-disabled','same-selected-bundle']
+                worker += [left,right]
             for name,rows in [('dog.jsonl',dog),('jev.jsonl',jev),('worker.jsonl',worker)]:
                 path=root/name
                 for item in rows: record.append(path,item)
