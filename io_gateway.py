@@ -897,6 +897,12 @@ def command_setup(args):
         ensure_claude_function_hooks_flag(dry_run=False)
     router,router_generated=make_router_config(root,project_id,router_mode,args.typesafe_env,
                                                router_source,dry_run=False)
+    previous_orchestrator_path=(Path(existing['orchestrator_config'])
+                                if existing and existing.get('orchestrator_generated')
+                                and existing.get('orchestrator_config') else None)
+    previous_orchestrator_bytes=(previous_orchestrator_path.read_bytes()
+                                 if previous_orchestrator_path and previous_orchestrator_path.is_file()
+                                 else None)
     orchestrator,orchestrator_generated=make_orchestrator_config(
         project_id,orchestration,args.typesafe_env,worker,dry_run=False)
     state['router_config']=str(router) if router else None
@@ -945,6 +951,15 @@ def command_setup(args):
                 atomic_write(previous_path,previous_bytes)
             elif path.is_file(): path.unlink()
             sync_global_mcp(all_states(exclude_id=project_id),replace=False)
+            if orchestrator_generated and orchestrator:
+                current_orchestrator=Path(orchestrator)
+                if (previous_orchestrator_path
+                        and current_orchestrator == previous_orchestrator_path
+                        and previous_orchestrator_bytes is not None):
+                    atomic_write(previous_orchestrator_path,previous_orchestrator_bytes)
+                elif (not previous_orchestrator_path
+                      or current_orchestrator != previous_orchestrator_path):
+                    remove_generated_config(current_orchestrator)
         except Exception: pass
         raise
     print(f'I/O Delegation ready for {root}')
