@@ -631,7 +631,8 @@ def run_compaction_hook_setup(root, agents, mode, *, dry_run=False, allow_tracke
         if git_tracked(root,rel) and not allow_tracked:
             raise ValueError(f'{rel} is tracked by git; use --allow-tracked-config only after reviewing the compaction hook diff')
         argv=[sys.executable,str(ROOT/'install_compaction_hooks.py'),'--agent',agent,
-              '--project',str(root),'--runtime',str(runtime_compaction())]
+              '--project',str(root),'--runtime',str(runtime_compaction()),
+              '--python',str(Path(sys.executable).resolve())]
         if dry_run: argv.append('--dry-run')
         if not should_install: argv.append('--remove')
         cp=subprocess.run(argv,capture_output=True,text=True,encoding='utf-8',
@@ -639,6 +640,24 @@ def run_compaction_hook_setup(root, agents, mode, *, dry_run=False, allow_tracke
         if cp.returncode:
             raise ValueError(f'Compaction hook setup failed for {agent}: '+(cp.stderr or cp.stdout)[-400:])
         rows.append(json.loads(cp.stdout))
+    return rows
+
+
+def configured_compaction_hosts(state):
+    if not state or state.get('compaction_mode') != 'on': return []
+    hosts=state.get('compaction_hosts')
+    if isinstance(hosts,list) and hosts: return list(dict.fromkeys(hosts))
+    return list(dict.fromkeys(state.get('agents',[])))
+
+
+def sync_compaction_hook_setup(root, agents, previous_hosts, mode, *, dry_run=False, allow_tracked=False):
+    active=set(agents if mode=='on' else [])
+    known=list(dict.fromkeys(list(previous_hosts or [])+list(agents or [])))
+    rows=[]
+    for agent in known:
+        rows.extend(run_compaction_hook_setup(
+            root,[agent],'on' if agent in active else 'off',
+            dry_run=dry_run,allow_tracked=allow_tracked))
     return rows
 
 
@@ -715,6 +734,7 @@ def command_setup(args):
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
     agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction=setup_choices(root,args,existing)
+    old_compaction_hosts=configured_compaction_hosts(existing)
 
     # Phase 1: resolve and validate the complete plan without writing anything.
     project_id,marker_action=ensure_marker(root,dry_run=True)
@@ -750,8 +770,9 @@ def command_setup(args):
     global_actions=sync_global_mcp(planned_states,dry_run=True,replace=args.replace_existing_mcp)
     guard_rows=run_guard_setup(root,agents,guard,dry_run=True,
                                allow_tracked=args.allow_tracked_config)
-    compaction_rows=run_compaction_hook_setup(
-        root,agents,compaction,dry_run=True,allow_tracked=args.allow_tracked_config)
+    compaction_rows=sync_compaction_hook_setup(
+        root,agents,old_compaction_hosts,compaction,dry_run=True,
+        allow_tracked=args.allow_tracked_config)
     if args.dry_run:
         actions={'marker':marker_action,'runtime':runtime_action,
                  **{f'skill:{k}':v for k,v in skill_actions.items()},
@@ -792,7 +813,9 @@ def command_setup(args):
         state['registrations']={k:{'target':str(v[0]) if v[0] else None,'status':v[1]}
                                 for k,v in registrations.items()}
         run_guard_setup(root,agents,guard,allow_tracked=args.allow_tracked_config)
-        run_compaction_hook_setup(root,agents,compaction,allow_tracked=args.allow_tracked_config)
+        sync_compaction_hook_setup(
+            root,agents,old_compaction_hosts,compaction,
+            allow_tracked=args.allow_tracked_config)
         sync_compaction_policy(root,compaction,args.typesafe_env,agents,dry_run=False)
         save_state(state)
     except Exception:
@@ -801,11 +824,11 @@ def command_setup(args):
         try:
             if existing and existing.get('compaction_mode') == 'on':
                 old_env=existing.get('compaction_api_key_env') or 'TYPESAFE_API_KEY'
-                old_hosts=existing.get('compaction_hosts') or existing.get('agents',[])
-                run_compaction_hook_setup(root,old_hosts,'on',allow_tracked=True)
+                old_hosts=configured_compaction_hosts(existing)
+                sync_compaction_hook_setup(root,old_hosts,agents,'on',allow_tracked=True)
                 sync_compaction_policy(root,'on',old_env,old_hosts,dry_run=False)
             else:
-                try: run_compaction_hook_setup(root,agents,'off',allow_tracked=True)
+                try: sync_compaction_hook_setup(root,agents,old_compaction_hosts,'off',allow_tracked=True)
                 except Exception: pass
                 sync_compaction_policy(root,'off',args.typesafe_env,agents,dry_run=False)
             if previous_bytes is not None and previous_path:
@@ -859,8 +882,9 @@ def command_remove(args):
     pid=state['project_id']; remaining=all_states(exclude_id=pid)
     guard_plan=remove_guard(root,state.get('agents',[]),dry_run=True,
                             allow_tracked=args.allow_tracked_config)
-    compaction_plan=run_compaction_hook_setup(
-        root,state.get('agents',[]),'off',dry_run=True,allow_tracked=args.allow_tracked_config)
+    compaction_hosts=configured_compaction_hosts(state)
+    compaction_plan=sync_compaction_hook_setup(
+        root,[],compaction_hosts,'off',dry_run=True,allow_tracked=args.allow_tracked_config)
     skill_plan=remove_skill_copies(root,state,args.force,dry_run=True)
     global_plan=sync_global_mcp(remaining,dry_run=True,replace=False)
     marker_plan=cleanup_marker(root,dry_run=True)
@@ -876,7 +900,7 @@ def command_remove(args):
         return 0
     sync_global_mcp(remaining,replace=False)
     guard_rows=remove_guard(root,state.get('agents',[]),allow_tracked=args.allow_tracked_config)
-    run_compaction_hook_setup(root,state.get('agents',[]),'off',allow_tracked=args.allow_tracked_config)
+    sync_compaction_hook_setup(root,[],compaction_hosts,'off',allow_tracked=args.allow_tracked_config)
     skills=remove_skill_copies(root,state,args.force)
     marker_action=cleanup_marker(root)
     path=Path(state['_state_path'])
@@ -976,10 +1000,10 @@ def status_data(root):
             'scope':{'prefixes':state.get('allow_prefixes',[]),'files':state.get('allow_files',[])},
             'runtime':runtime_bootstrap().is_file(),'smart_routing':bool(state.get('router_config')),
             'jev_compaction':state.get('compaction_mode')=='on',
-            'compaction_hosts':state.get('compaction_hosts',[]),
+            'compaction_hosts':configured_compaction_hosts(state),
             'compaction_adapters':{
                 a:compaction_hook_installed(root,a)
-                for a in state.get('compaction_hosts',[])
+                for a in configured_compaction_hosts(state)
             } if state.get('compaction_mode')=='on' else {},
             'credential_envs':{name:bool(os.environ.get(name)) for name in envs},
             'semantic_worker':bool(state.get('worker_config')),
@@ -1068,7 +1092,7 @@ def command_doctor(args):
         valid=(isinstance(policy,dict) and policy.get('version')==1 and policy.get('enabled') is True and
                policy.get('provider')=='typesafe' and policy.get('approved_data_scope')==COMPACTION_DATA_SCOPE)
         add('Jev compaction policy','pass' if valid else 'fail',str(compaction_policy_path(root)))
-        hosts=state.get('compaction_hosts') or state.get('agents',[])
+        hosts=configured_compaction_hosts(state)
         for agent in hosts:
             ready=compaction_hook_installed(root,agent)
             label='Jev compaction '+agent
