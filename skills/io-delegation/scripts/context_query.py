@@ -412,6 +412,7 @@ class QueryEngine:
         if compute_result:
             orchestration = {
                 'tier': metrics['compute_tier'],
+                'initial_tier': compute_result.get('tier'),
                 'decision': metrics['compute_decision'],
                 'scores': compute_result['scores'],
                 'model': compute_result['model'],
