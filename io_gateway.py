@@ -727,9 +727,11 @@ def command_setup(args):
     ensure_marker(root,dry_run=False,project_id=project_id)
     install_runtime(dry_run=False)
     if compaction == 'on':
-        ensure_claude_function_hooks_flag(dry_run=False)
+        # A global plugin without a project policy is inert. Install it before
+        # enabling the function-hook flag; the project policy itself is written
+        # only inside the transactional state/registration block below.
         ensure_claude_compaction_plugin(dry_run=False)
-    sync_compaction_policy(root,compaction,args.typesafe_env,dry_run=False)
+        ensure_claude_function_hooks_flag(dry_run=False)
     router,router_generated=make_router_config(root,project_id,router_mode,args.typesafe_env,
                                                router_source,dry_run=False)
     state['router_config']=str(router) if router else None
@@ -750,10 +752,17 @@ def command_setup(args):
         state['registrations']={k:{'target':str(v[0]) if v[0] else None,'status':v[1]}
                                 for k,v in registrations.items()}
         run_guard_setup(root,agents,guard,allow_tracked=args.allow_tracked_config)
+        sync_compaction_policy(root,compaction,args.typesafe_env,dry_run=False)
         save_state(state)
     except Exception:
-        # Restore state/global registration; managed local assets remain safe and can be retried/removed.
+        # Restore state/global registration. The global compaction plugin may
+        # remain installed, but without a project policy it is inert.
         try:
+            if existing and existing.get('compaction_mode') == 'on':
+                old_env=existing.get('compaction_api_key_env') or 'TYPESAFE_API_KEY'
+                sync_compaction_policy(root,'on',old_env,dry_run=False)
+            else:
+                sync_compaction_policy(root,'off',args.typesafe_env,dry_run=False)
             if previous_bytes is not None and previous_path:
                 atomic_write(previous_path,previous_bytes)
             elif path.is_file(): path.unlink()
