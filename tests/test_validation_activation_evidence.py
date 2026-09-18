@@ -1,6 +1,6 @@
 import importlib.util
 from pathlib import Path
-import sys, unittest
+import json, sys, tempfile, unittest
 
 BASE=Path(__file__).resolve().parents[1]/'benchmarks/v1-validation'
 sys.path.insert(0,str(BASE))
@@ -55,5 +55,33 @@ class ActivationEvidenceTests(unittest.TestCase):
               row('gate-auto','002-t-gate-auto-r1',source=10)]
         out=mod.evaluate(rows,required_pairs=1,min_valid_pairs=1)
         self.assertFalse(out['gates']['bypass_has_zero_gateway_context'])
+
+    def test_isolation_verifier_requires_command_contract(self):
+        rows=[row('gate-always','001-t-gate-always-r1',decision='enable'),
+              row('gate-auto','002-t-gate-auto-r1')]
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            base=[
+                'codex','exec','--json','--ephemeral','--ignore-user-config',
+                '--disable','apps','--disable','plugins','--skip-git-repo-check',
+                '-c','approval_policy="never"','-c','web_search="disabled"',
+                '-c','features.shell_tool=true','-c','features.unified_exec=false',
+                '-c','features.multi_agent=false','-c','features.memories=false',
+                '-c','features.skill_mcp_dependency_install=false',
+                '-c','sandbox_workspace_write.network_access=false'
+            ]
+            for item in rows:
+                d=root/'runs'/item['run_id']; d.mkdir(parents=True)
+                cmd=list(base)
+                if item['arm']=='gate-auto':
+                    cmd += ['-c','mcp_servers.io_context.command="python"']
+                (d/'command.json').write_text(json.dumps(cmd),encoding='utf-8')
+            verified=mod.verify_isolation(rows,root)
+            self.assertTrue(verified['verified'])
+            self.assertEqual(verified['version'],mod.ISOLATION_VERSION)
+            bad=json.loads((root/'runs'/rows[0]['run_id']/'command.json').read_text())
+            bad.remove('--ignore-user-config')
+            (root/'runs'/rows[0]['run_id']/'command.json').write_text(json.dumps(bad))
+            self.assertFalse(mod.verify_isolation(rows,root)['verified'])
 
 if __name__=='__main__': unittest.main()
