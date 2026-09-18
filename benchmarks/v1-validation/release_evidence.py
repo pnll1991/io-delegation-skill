@@ -87,7 +87,8 @@ def causal_gate(rows,left,right,min_pairs,component):
     report=paired.summarize(rows,left,right)
     pairs,_incomplete=paired.pair_rows(rows,left,right)
     relevant=[row for row in rows if row.get('arm') in (left,right)]
-    isolated=bool(relevant) and all(ISOLATION_TAG in (row.get('tags') or []) for row in relevant)
+    required_tag=ISOLATION_TAG if component=='jev' else 'worker-isolation'
+    isolated=bool(relevant) and all(required_tag in (row.get('tags') or []) for row in relevant)
     left_ok,right_ok=pair_successes(report)
     regressions=[rhs['run_id'] for _key,lhs,rhs in pairs
                  if lhs.get('success') is True and rhs.get('success') is not True]
@@ -101,7 +102,7 @@ def causal_gate(rows,left,right,min_pairs,component):
             right_ok>=left_ok and not regressions and called>0 and not relevant_warning)
     return report,{'pass':passed,'pairs':report['pair_count'],'minimum_pairs':min_pairs,
                    'left_successes':left_ok,'right_successes':right_ok,'component_called_pairs':called,
-                   'runner_isolation':isolated,'isolation_tag':ISOLATION_TAG,
+                   'runner_isolation':isolated,'isolation_tag':required_tag,
                    'regression_run_ids':regressions,'warnings':warnings}
 
 
