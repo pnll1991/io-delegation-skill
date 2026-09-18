@@ -263,6 +263,8 @@ def load_config(path: str) -> dict[str, Any]:
             value=cheap['max_output_tokens']
             if type(value) is not int or not 64 <= value <= 4096:
                 raise DelegateError('cheap max_output_tokens debe estar entre 64 y 4096.')
+    if cfg.get('model_policy') is not None and cfg['adapter'] not in ('codex-cli','cursor-cli','host-cli'):
+        raise DelegateError('model_policy dinámico sólo está soportado por codex-cli, cursor-cli o host-cli.')
     try:
         model_policy.validate_config(cfg)
     except model_policy.ModelPolicyError as exc:
