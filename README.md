@@ -10,7 +10,7 @@
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing is optional; the semantic worker is experimental and is not auto-dispatched by default.
+I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing is optional; Jev-guided context compaction is automatic by default; the semantic worker is experimental and is not auto-dispatched by default.
 
 ```text
 agent -> io_context -> search / extract / query
@@ -20,7 +20,7 @@ agent -> io_context -> search / extract / query
                       targeted  principal  worker
 ```
 
-The gateway works without an external model. Jev is optional. Source contents are not sent to Jev; it receives the task plus aggregate metadata. A configured semantic worker stays out of the automatic path unless its reviewed config explicitly sets `context_auto_dispatch: true`.
+The gateway still works without an external model. The optional Jev router receives the task plus aggregate metadata. Automatic compaction uses Jev when its configured API key is available and has the broader conversation/tool-input data boundary documented below; if Jev is unavailable, the host's native compaction remains the fallback. A configured semantic worker stays out of the automatic path unless its reviewed config explicitly sets `context_auto_dispatch: true`.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ io-delegation.cmd setup --project "D:\\path\\to\\project"
 ./io-delegation setup --project "/path/to/project"
 ```
 
-Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps Jev **off by default** unless explicitly enabled, keeps semantic-worker auto-dispatch **off by default**, keeps the read guard **off by default**, and runs `doctor`.
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps experimental Jev **routing off by default**, enables **automatic context compaction by default**, keeps semantic-worker auto-dispatch **off by default**, keeps the read guard **off by default**, and runs `doctor`.
 
 Preview with zero writes, then inspect the installation at any time:
 
@@ -56,6 +56,7 @@ io-delegation setup --project . --agent codex
 io-delegation setup --project . --agent all --jev on
 io-delegation setup --project . --worker-config /private/worker.json
 io-delegation setup --project . --guard enforce
+io-delegation setup --project . --compaction off  # persistent escape hatch
 ```
 
 `TYPESAFE_API_KEY` being present no longer auto-enables Jev. Use `--jev on` (or an explicitly reviewed `--router-config`) when you intentionally want the experimental router.
@@ -111,16 +112,28 @@ The installer preserves other settings and hooks, backs up changed configuration
 [Policy, supported forms, removal and real-host verification](skills/io-delegation/references/ENFORCEMENT.md) · [Hook tests](tests/test_read_guard.py)
 
 
-## Jev-guided context compaction (optional)
+## Automatic Jev-guided context compaction
 
-Claude Code, Codex and Cursor can use the same project-scoped Jev compaction
-policy. Enable it for whichever agents are installed in the project:
+Claude Code, Codex and Cursor use the same project-scoped compaction policy. `setup`
+enables the compaction adapters automatically for the installed hosts; there is no
+manual compaction command to remember. Claude can proactively compact at the configured
+context threshold (60% by default), while Codex and Cursor attach to their host-native
+automatic compaction lifecycle.
 
 ```bash
-io-delegation setup --project . --agent all --compaction on
-# or only one host:
-io-delegation setup --project . --agent codex --compaction on
+# Automatic compaction is the default
+io-delegation setup --project . --agent all
+
+# Persistent per-project escape hatch
+io-delegation setup --project . --compaction off
+
+# Restore automatic compaction
+io-delegation setup --project . --compaction on
 ```
+
+An explicit `--compaction off` preference persists across later `setup` runs. Legacy
+project states that never stored a compaction preference migrate to automatic compaction
+on their next setup/update.
 
 The decision model is shared, while the host adapter matches the lifecycle each
 client actually exposes:
@@ -138,11 +151,11 @@ are not sent to Jev** in the Codex/Cursor bridge: Jev sees only result
 size/error metadata, while the exact result stays machine-local and is
 re-injected only when Jev says it should survive compaction.
 
-The ignored `.io-delegation/compaction.json` policy records the approved hosts
+The ignored `.io-delegation/compaction.json` policy records the configured hosts
 and data scope. The API key remains in `TYPESAFE_API_KEY` (or the
-`--typesafe-env` variable). Outside an opted-in project the adapters are
-inert. Any Jev/adapter failure falls back to the host's native compaction rather
-than blocking the session.
+`--typesafe-env` variable). Outside configured projects the adapters are inert;
+`--compaction off` disables them for that project. A missing key or any Jev/adapter
+failure falls back to the host's native compaction rather than blocking the session.
 
 ## What it does
 
