@@ -84,6 +84,34 @@ def mcp_check_command(host):
     raise ValueError('host must be codex, claude or cursor')
 
 
+def auth_check_command(host):
+    if host == 'claude':
+        return [shutil.which('claude') or 'claude', 'auth', 'status', '--json']
+    if host == 'cursor':
+        return [shutil.which('agent') or 'agent', 'status']
+    if host == 'codex':
+        return [shutil.which('codex') or 'codex', 'login', 'status']
+    raise ValueError('host must be codex, claude or cursor')
+
+
+def auth_check_ok(host, returncode, stdout='', stderr=''):
+    text = (stdout + '\n' + stderr).strip()
+    if returncode:
+        return False
+    if host == 'claude':
+        try:
+            value = json.loads(stdout)
+        except ValueError:
+            return False
+        return isinstance(value, dict) and value.get('loggedIn') is True
+    lowered = text.lower()
+    if host == 'cursor':
+        return 'not logged in' not in lowered and 'not authenticated' not in lowered
+    if host == 'codex':
+        return 'not logged in' not in lowered
+    return False
+
+
 def format_value(value, context):
     text = str(value)
     for key, item in context.items():
@@ -359,6 +387,12 @@ def preflight(host, project, io_command='io-delegation'):
     if not shutil.which(executable):
         raise ValueError(f'{executable} CLI not installed')
     project = Path(project).resolve(strict=True)
+    auth = subprocess.run(
+        auth_check_command(host), cwd=project,
+        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+    )
+    if not auth_check_ok(host, auth.returncode, auth.stdout, auth.stderr):
+        raise ValueError(f'{host} CLI is not authenticated')
     doctor = subprocess.run(
         [io_command, 'doctor', '--project', str(project), '--json'],
         capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
@@ -509,8 +543,11 @@ def main(argv=None):
         if args.preflight:
             print(json.dumps({'ok': True, 'model_calls': 0, 'cases': len(suite['cases']), 'audit': str(audit)}))
             return 0
-        print(json.dumps(run_suite(args.host, project, audit, suite, args.output, model=args.model), ensure_ascii=False, indent=2))
-        return 0
+        summary = run_suite(args.host, project, audit, suite, args.output, model=args.model)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        overall = (summary.get('overall') or {}).get('gateway-host') or {}
+        complete = summary.get('runs') == len(suite['cases'])
+        return 0 if complete and overall.get('success_rate') == 1.0 else 3
     finally:
         cleanup_cursor_project_config(cursor_paths)
 

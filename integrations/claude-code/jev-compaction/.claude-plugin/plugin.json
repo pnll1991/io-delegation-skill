@@ -1,6 +1,6 @@
 {
   "name": "io-delegation-jev-compaction",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Project-scoped Jev-guided verbatim compaction for I/O Delegation.",
   "license": "MIT"
 }
