@@ -1,4 +1,4 @@
-# Context MCP / Gateway V1.1
+# Context MCP / Gateway V1.2
 
 The service prepares evidence before inference. It never edits project source, changes permissions, starts an arbitrary command from a tool argument, or chooses a provider.
 
@@ -18,13 +18,13 @@ Large minified lines must use bounded search/spans, not whole-line output. Overs
 
 ## Smart `query` tool
 
-V1 exposes `query` as the primary semantic context interface. It accepts explicit selected fragments plus a question and operation hint. It always works: without external services it applies local routing rules and returns bounded evidence. With an approved TypeSafe router config, Jev receives task text plus aggregate file metadata only. Semantic-worker auto-dispatch is experimental and off by default.
+V1 exposes `query` as the primary semantic context interface. It accepts explicit selected fragments plus a question and operation hint. It always works: without external services it applies local routing rules and returns bounded evidence. With an approved TypeSafe router config, Jev can score ambiguous route selection. Separately, when setup has an approved worker, the generated compute orchestrator can score whether a bulk factual candidate is safe for one cheap T1 attempt. Both Jev paths receive task text plus aggregate file metadata only.
 
-A `principal` route returns bounded evidence for reasoning in the main agent. `targeted_read` returns the selected fragments without another model. Router errors and low-confidence decisions fall back to local rules. Semantic inference is internal to `query`; callers cannot bypass routing with a separate semantic MCP tool.
+A `principal` route returns bounded evidence for reasoning in the main agent. `targeted_read` returns selected fragments without another model. T1 results must pass literal-evidence validation and contain no unknowns; otherwise `query` escalates to T2/principal. Router errors fall back to local route rules; compute-scorer errors fail closed to T2/principal. Semantic inference remains internal to `query`; callers cannot bypass policy with a separate semantic MCP tool.
 
 ## Optional semantic worker
 
-An already reviewed `--config` outside the project makes the internal semantic worker available but does not put it on the automatic V1 path. Experimental auto-dispatch additionally requires `"context_auto_dispatch": true` in that worker config and can run only when `query` selects `bulk_read`. Without that flag, `query` returns bounded selected evidence locally and preserves the worker route only as a recommendation.
+An already reviewed worker config outside the project makes the internal semantic worker available. Normal product setup defaults compute orchestration to `auto` when such a worker is present: only a bulk factual candidate can reach the Jev compute scorer, and only deterministic low-risk/sufficiency gates can authorize one T1 attempt. The older unconditional semantic path is still available for experiments and still requires `"context_auto_dispatch": true`. See [ORCHESTRATION.md](ORCHESTRATION.md).
 
 `query` accepts explicit `selections` of `{path, select}`, plus `question` or up to four related `questions`. Selectors support lines/span, literal windows and Python symbols. Qualified Python methods retain the containing class; imports and module bindings are included. This is not whole-program dependency resolution. Other languages use explicit ranges/windows rather than a pretend AST parser.
 
