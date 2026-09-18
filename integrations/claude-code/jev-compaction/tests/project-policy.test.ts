@@ -30,6 +30,13 @@ describe('project-scoped compaction policy', () => {
     expect(cfg?.compactAtPercent).toBe(72);
     expect(cfg?.preserveRecentMessages).toBe(8);
   });
+  it('is inert when the project enables compaction for other hosts only', async () => {
+    expect(await resolveProjectHookConfig(host({
+      version:1, enabled:true, provider:'typesafe',
+      hosts:['codex','cursor'],
+      approved_data_scope:'conversation_text_and_tool_inputs'
+    }), resolveHookConfig({}))).toBeNull();
+  });
   it('is inert when the policy is disabled', async () => {
     expect(await resolveProjectHookConfig(host({
       version:1, enabled:false, provider:'typesafe',
