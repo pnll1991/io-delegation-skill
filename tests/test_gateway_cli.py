@@ -191,6 +191,40 @@ class GatewayCLITests(unittest.TestCase):
         code,text,err=self.cli('doctor','--project',str(self.project))
         self.assertEqual(code,0,err); self.assertIn('MCP handshake: search, extract, query',text)
 
+    def test_worker_config_auto_enables_cheap_first_orchestration(self):
+        worker=self.base/'cheap-worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=['worker-fixture'],timeout_seconds=5)))
+        code,text,err=self.setup_codex('--worker-config',str(worker))
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['orchestration_preference'],'auto')
+        self.assertTrue(state['orchestrator_config'])
+        self.assertTrue(Path(state['orchestrator_config']).is_file())
+        self.assertFalse(str(Path(state['orchestrator_config']).resolve()).startswith(str(self.project.resolve())))
+        status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
+        self.assertTrue(status['compute_orchestration'])
+        self.assertIn('TYPESAFE_API_KEY',status['credential_envs'])
+
+    def test_orchestration_off_is_persistent_escape_hatch(self):
+        worker=self.base/'cheap-worker-off.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=['worker-fixture'],timeout_seconds=5)))
+        code,text,err=self.setup_codex('--worker-config',str(worker),'--orchestration','off')
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['orchestration_preference'],'off')
+        self.assertIsNone(state['orchestrator_config'])
+        code,text,err=self.setup_codex()
+        self.assertEqual(code,0,err)
+        self.assertIsNone(gateway.load_state(self.project)['orchestrator_config'])
+
+    def test_orchestration_on_requires_worker(self):
+        code,text,err=self.setup_codex('--orchestration','on')
+        self.assertEqual(code,2)
+        self.assertIn('requires an approved --worker-config',err)
+        self.assertFalse((self.project/'.io-delegation').exists())
+
     def test_worker_status_distinguishes_configured_from_auto_dispatch(self):
         worker=self.base/'worker.json'
         worker.write_text(json.dumps(dict(approved=True,adapter='command',argv=['worker-fixture'])))
