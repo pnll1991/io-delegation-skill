@@ -1165,7 +1165,8 @@ def build_parser():
     setup.add_argument('--allow-prefix',action='append'); setup.add_argument('--allow-file',action='append')
     setup.add_argument('--worker-config'); setup.add_argument('--no-worker',action='store_true')
     setup.add_argument('--router-config'); setup.add_argument('--jev',choices=['auto','on','off'],default=None)
-    setup.add_argument('--compaction',choices=['on','off'],default=None,\n                       help='automatic by default; off is a persistent per-project override')
+    setup.add_argument('--compaction',choices=['on','off'],default=None,
+                       help='automatic by default; off is a persistent per-project override')
     setup.add_argument('--typesafe-env',default='TYPESAFE_API_KEY')
     setup.add_argument('--guard',choices=['off','observe','enforce'],default=None)
     setup.add_argument('--activation',choices=['auto','always','off'],default=None)
