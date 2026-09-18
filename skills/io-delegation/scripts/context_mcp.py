@@ -54,13 +54,15 @@ def append_event(folder, row):
 
 
 class ContextService:
-    def __init__(self, root, audit_root, prefixes=(), files=(), config=None, router_config=None, cache=True):
+    def __init__(self, root, audit_root, prefixes=(), files=(), config=None, router_config=None,
+                 orchestrator_config=None, cache=True):
         self.scope = SourceScope(root, prefixes, files)
         self.audit = private_external(audit_root, self.scope.root)
         self.config = config
         self.cache = ResultCache(self.audit, enabled=cache)
         self.engine = SemanticEngine(self.scope, self.audit, config, cache=cache) if config is not None else None
-        self.query = QueryEngine(self.scope, self.audit, config, router_config, cache=cache)
+        self.query = QueryEngine(self.scope, self.audit, config, router_config,
+                                 orchestrator_config=orchestrator_config, cache=cache)
 
     def tool_names(self):
         return ('search', 'extract', 'query')
@@ -144,7 +146,7 @@ def tools(service):
         shape('python_symbol', dict(name=dict(type='string',minLength=1,maxLength=160)), ['name'])])
     if service.query:
         result.append(dict(name='query',
-            description='Smart bounded context query. Routes selected evidence to the principal or direct fragments; an approved semantic worker is experimental and requires explicit auto-dispatch opt-in. Jev sees only task text and aggregate metadata.',
+            description='Smart bounded context query. Uses local rules plus optional Jev routing/compute scoring; approved cheap workers are validated and escalate to the principal on failure. Jev sees only task text and aggregate metadata.',
             inputSchema=dict(type='object', properties=dict(
                 selections=dict(type='array',minItems=1,maxItems=12,items=dict(type='object',
                     properties=dict(path=dict(type='string'),select=selector),required=['path','select'],additionalProperties=False)),
@@ -200,13 +202,16 @@ def serve(service, inp=None, out=None):
         out.write(encoded(reply)+b'\n'); out.flush()
 
 
-def codex_arguments(root, audit_root, prefixes=(), files=(), config=None, router_config=None):
+def codex_arguments(root, audit_root, prefixes=(), files=(), config=None, router_config=None,
+                    orchestrator_config=None):
     args = ['-I', str(Path(__file__).resolve()), '--root', str(Path(root).resolve()),
             '--audit-root', str(Path(audit_root).resolve())]
     if config:
         args += ['--config', str(Path(config).resolve())]
     if router_config:
         args += ['--router-config', str(Path(router_config).resolve())]
+    if orchestrator_config:
+        args += ['--orchestrator-config', str(Path(orchestrator_config).resolve())]
     for p in prefixes: args += ['--allow-prefix', relative_name(p)]
     for p in files: args += ['--allow-file', relative_name(p)]
     if not prefixes and not files:
@@ -223,6 +228,11 @@ def codex_arguments(root, audit_root, prefixes=(), files=(), config=None, router
         rcfg = jev_router.load_config(str(router_config))
         env_vars.append(rcfg['api_key_env'])
         settings['tool_timeout_sec'] = max(settings['tool_timeout_sec'], int(rcfg['timeout_seconds'])+30)
+    if orchestrator_config:
+        import context_orchestrator as compute
+        ocfg = compute.load_config(str(orchestrator_config))
+        env_vars.append(ocfg['api_key_env'])
+        settings['tool_timeout_sec'] = max(settings['tool_timeout_sec'], int(ocfg['timeout_seconds'])+30)
     settings['env_vars'] = list(dict.fromkeys(env_vars))
     return [x for k, v in settings.items() for x in ('-c', f'mcp_servers.{SERVER}.{k}='+json.dumps(v, ensure_ascii=True))]
 
@@ -233,9 +243,11 @@ def main():
     p.add_argument('--allow-prefix', action='append', default=[]); p.add_argument('--allow-file', action='append', default=[])
     p.add_argument('--config', type=Path)
     p.add_argument('--router-config', type=Path)
+    p.add_argument('--orchestrator-config', type=Path)
     p.add_argument('--no-cache', action='store_true', help='Disable local result reuse, not provider caching')
     a = p.parse_args()
-    return serve(ContextService(a.root, a.audit_root, a.allow_prefix, a.allow_file, a.config, a.router_config, cache=not a.no_cache))
+    return serve(ContextService(a.root, a.audit_root, a.allow_prefix, a.allow_file, a.config,
+                                a.router_config, a.orchestrator_config, cache=not a.no_cache))
 
 
 if __name__ == '__main__':
