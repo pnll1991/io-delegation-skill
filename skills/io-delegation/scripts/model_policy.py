@@ -232,14 +232,13 @@ def resolve(cfg: dict[str, Any], host: str | None, preset_override: str | None =
     allowed_profiles = hp["allowed_profiles"]
     order = [x for x in order if x not in hp["blocked_profiles"]
              and (allowed_profiles is None or x in allowed_profiles)]
-    if hp["min_profile"] in order:
-        order = order[order.index(hp["min_profile"]):]
-    if hp["max_profile"] in order:
-        order = order[:order.index(hp["max_profile"])+1]
-    else:
-        # A ceiling excluded by a custom order is a configuration error, not permission
-        # to silently run beyond it.
-        raise ModelPolicyError(f"{effective_host} max_profile is not reachable in {preset} order")
+    registry_order = [item["id"] for item in hp["profiles"]]
+    min_rank = registry_order.index(hp["min_profile"]) if hp["min_profile"] is not None else 0
+    max_rank = registry_order.index(hp["max_profile"])
+    order = [
+        pid for pid in order
+        if min_rank <= registry_order.index(pid) <= max_rank
+    ]
     if not order:
         raise ModelPolicyError(f"{effective_host} model policy has no runnable profiles")
     return {
