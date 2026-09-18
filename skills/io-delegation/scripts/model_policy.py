@@ -162,7 +162,9 @@ def _host_policy(raw: Any, host: str) -> dict[str, Any]:
             raise ModelPolicyError(f"duplicate profile in {host} {preset} order")
         normalized_orders[preset] = list(order)
 
-    max_profile = raw.get("max_profile", DEFAULT_MAX.get(host, normalized_orders["balanced"][-1]))
+    default_max = (normalized_orders["balanced"][-1]
+                   if "profiles" in raw else DEFAULT_MAX.get(host, normalized_orders["balanced"][-1]))
+    max_profile = raw.get("max_profile", default_max)
     min_profile = raw.get("min_profile")
     if max_profile not in table:
         raise ModelPolicyError(f"unknown {host} max_profile")
