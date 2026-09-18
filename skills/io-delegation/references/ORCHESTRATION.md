@@ -245,6 +245,10 @@ Existing `codex-cli`, `cursor-cli`, command and Chat Completions workers remain
 supported. The pre-v1.3 `compute_profiles.cheap` format is retained for compatibility,
 but it cannot be combined with `model_policy`.
 
+## Cursor trust boundary
+
+The Cursor CLI worker uses a temporary workspace, Ask mode, Cursor sandbox, and explicit deny rules for shell, writes, web, MCP, parent/absolute reads and `.cursor/**`. These controls reduce unintended access but are not described as an OS-level chroot: Cursor read/search capabilities remain subject to Cursor's own permission enforcement. Use the adapter only on machines/workspaces where Cursor itself is trusted.
+
 ## Validation and escalation
 
 Every worker response still passes the existing local evidence validator:
