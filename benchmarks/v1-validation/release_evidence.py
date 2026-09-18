@@ -15,6 +15,7 @@ import paired
 import record
 
 LARGE_FAMILIES={'large-understanding','multi-file-factual'}
+ISOLATION_TAG='codex-isolated-v2'
 
 
 def read_json(path):
@@ -51,6 +52,8 @@ def pair_successes(report):
 def dogfood_gates(rows,left,right,small_overhead_pct,context_ratio):
     report=paired.summarize(rows,left,right)
     pairs,_incomplete=paired.pair_rows(rows,left,right)
+    relevant=[row for row in rows if row.get('arm') in (left,right)]
+    isolated=bool(relevant) and all(ISOLATION_TAG in (row.get('tags') or []) for row in relevant)
     left_ok,right_ok=pair_successes(report)
     regressions=[rhs['run_id'] for _key,lhs,rhs in pairs
                  if lhs.get('success') is True and rhs.get('success') is not True]
@@ -71,6 +74,7 @@ def dogfood_gates(rows,left,right,small_overhead_pct,context_ratio):
     unsafe=[row['run_id'] for row in principal if (_get(row,'worker','calls') or 0)>0 or _get(row,'route','effective')=='bulk_read']
     principal_gate=len(principal)>=3 and not unsafe
     return report,{
+        'runner_isolation':{'pass':isolated,'tag':ISOLATION_TAG,'runs':len(relevant)},
         'functional_quality':{'pass':quality,'left_successes':left_ok,'right_successes':right_ok,
                               'pairs':report['pair_count'],'regression_run_ids':regressions},
         'small_task_overhead':{'pass':small_gate,'median_pct':small_median,'max_allowed_pct':small_overhead_pct,'valid_pairs':small.get('valid_pairs',0)},
@@ -82,6 +86,8 @@ def dogfood_gates(rows,left,right,small_overhead_pct,context_ratio):
 def causal_gate(rows,left,right,min_pairs,component):
     report=paired.summarize(rows,left,right)
     pairs,_incomplete=paired.pair_rows(rows,left,right)
+    relevant=[row for row in rows if row.get('arm') in (left,right)]
+    isolated=bool(relevant) and all(ISOLATION_TAG in (row.get('tags') or []) for row in relevant)
     left_ok,right_ok=pair_successes(report)
     regressions=[rhs['run_id'] for _key,lhs,rhs in pairs
                  if lhs.get('success') is True and rhs.get('success') is not True]
@@ -91,10 +97,11 @@ def causal_gate(rows,left,right,min_pairs,component):
         called+=int(family.get('jev_called_pairs' if component=='jev' else 'worker_called_pairs',0))
     never_text='never called Jev' if component=='jev' else 'never called the worker'
     relevant_warning=any(never_text in warning for warning in warnings)
-    passed=(report['pair_count']>=min_pairs and report['incomplete_pair_count']==0 and
+    passed=(isolated and report['pair_count']>=min_pairs and report['incomplete_pair_count']==0 and
             right_ok>=left_ok and not regressions and called>0 and not relevant_warning)
     return report,{'pass':passed,'pairs':report['pair_count'],'minimum_pairs':min_pairs,
                    'left_successes':left_ok,'right_successes':right_ok,'component_called_pairs':called,
+                   'runner_isolation':isolated,'isolation_tag':ISOLATION_TAG,
                    'regression_run_ids':regressions,'warnings':warnings}
 
 
