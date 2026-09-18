@@ -232,6 +232,31 @@ class GatewayCLITests(unittest.TestCase):
         self.assertIn('requires an approved --worker-config',err)
         self.assertFalse((self.project/'.io-delegation').exists())
 
+    def test_failed_setup_restores_generated_orchestrator_config(self):
+        worker=self.base/'rollback-worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=['worker-fixture'],timeout_seconds=5)))
+        code,text,err=self.setup_codex('--worker-config',str(worker))
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        config=Path(state['orchestrator_config'])
+        before=config.read_bytes()
+
+        real_save=gateway.save_state
+        calls={'n':0}
+        def flaky_save(row):
+            calls['n']+=1
+            if calls['n']==2:
+                raise OSError('orchestrator rollback fixture')
+            return real_save(row)
+
+        with patch.object(gateway,'save_state',side_effect=flaky_save):
+            code,text,err=self.setup_codex('--typesafe-env','OTHER_TYPESAFE_KEY')
+        self.assertEqual(code,2)
+        self.assertIn('orchestrator rollback fixture',err)
+        self.assertEqual(config.read_bytes(),before)
+        self.assertEqual(gateway.load_state(self.project)['compaction_api_key_env'],'TYPESAFE_API_KEY')
+
     def test_worker_status_distinguishes_configured_from_auto_dispatch(self):
         worker=self.base/'worker.json'
         worker.write_text(json.dumps(dict(approved=True,adapter='command',argv=['worker-fixture'])))
