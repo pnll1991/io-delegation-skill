@@ -228,6 +228,7 @@ class QueryEngine:
             if accepted:
                 worker_result['route'] = 'bulk_read'
                 worker_result['recommended_route'] = 'bulk_read'
+                worker_result['model_calls'] = metrics['model_calls']
                 return worker_result, plan, attempts
 
             if (escalations >= max_escalations
