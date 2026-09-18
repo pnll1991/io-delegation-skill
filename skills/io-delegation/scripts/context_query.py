@@ -12,6 +12,7 @@ import time
 
 import decision_router as jev
 import context_orchestrator as compute
+import model_policy
 from context_selection import MAX_SELECTED_BYTES, grouped_question, select
 from context_sources import exact_keys, source_table
 from context_engine import SemanticEngine
@@ -123,8 +124,10 @@ def _semantic_args(arguments, selections):
 
 class QueryEngine:
     def __init__(self, scope, audit, worker_config=None, router_config=None,
-                 orchestrator_config=None, cache=True):
+                 orchestrator_config=None, cache=True, host=None, model_preset=None):
         self.scope = scope
+        self.host = host
+        self.model_preset = model_preset
         self.semantic = (SemanticEngine(scope, audit, worker_config, cache=cache)
                          if worker_config is not None else None)
         self.worker_auto_dispatch = bool(
@@ -142,6 +145,117 @@ class QueryEngine:
         bundle = select(sources, selections, max_bytes=direct_limit)
         return bundle, _evidence(bundle, 'principal', recommended=recommended, reason=reason)
 
+    @staticmethod
+    def _retryable_worker_failure(result, semantic_metrics):
+        if result.get('status') == 'ok':
+            # Evidence exists but uncertainty remained; a stronger configured profile may
+            # be worth one bounded retry.
+            return bool(result.get('findings')) and bool(result.get('unknowns'))
+        if result.get('status') != 'error' or semantic_metrics.get('model_calls', 0) != 1:
+            return False
+        reason = str(result.get('reason', ''))
+        # Transport/config/budget failures should not turn into an expensive ladder.
+        blocked = (
+            'TransportError', 'BudgetError', 'timeout', 'executable', 'config',
+            'credential', 'api key', 'worker_output_limit', 'turn_failed'
+        )
+        return not any(x.lower() in reason.lower() for x in blocked)
+
+    @staticmethod
+    def _merge_semantic_metrics(metrics, semantic_metrics):
+        metrics['model_calls'] += semantic_metrics.get('model_calls', 0)
+        for key, value in semantic_metrics.items():
+            if key not in {'route', 'source_bytes', 'compute_tier', 'model_calls'}:
+                metrics[key] = value
+
+    def _run_model_policy(self, arguments, selections, sources, direct_limit,
+                          question, paths, operation, compute_result, metrics):
+        try:
+            plan = model_policy.choose(
+                self.semantic.cfg, self.host, compute_result['scores'], operation,
+                preset_override=self.model_preset)
+        except model_policy.ModelPolicyError:
+            bundle, result = self._principal_bundle(
+                sources, selections, direct_limit, 'model_policy_error')
+            metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                           compute_tier='T2', compute_decision='policy_error')
+            return result, None, []
+
+        metrics.update(
+            model_policy_preset=plan.get('preset'),
+            model_demand=round(float(plan.get('demand', 0)), 4),
+            model_tier=plan.get('model_tier'),
+            compute_decision=plan.get('decision'),
+        )
+        if plan['decision'] != 'worker':
+            bundle, result = self._principal_bundle(
+                sources, selections, direct_limit, plan['reason'])
+            metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                           compute_tier='T2')
+            return result, plan, []
+
+        current = dict(plan['profile'])
+        initial_profile = current['id']
+        attempts = []
+        escalations = 0
+        max_escalations = int(plan.get('max_escalations', 0))
+        max_output = self.orchestrator.cfg['compute_policy']['max_cheap_output_tokens']
+
+        while True:
+            execution = {
+                'tier': 'T1', 'profile': current, 'host': self.host,
+                'max_output_tokens': max_output,
+            }
+            worker_result, semantic_metrics = self.semantic.run(
+                _semantic_args(arguments, selections), execution=execution)
+            self._merge_semantic_metrics(metrics, semantic_metrics)
+            accepted = compute.accepted_worker_result(worker_result)
+            attempts.append({
+                'profile': current['id'],
+                'model': semantic_metrics.get('worker_model', current.get('model')),
+                'effort': semantic_metrics.get('worker_reasoning_effort', current.get('effort')),
+                'adapter': semantic_metrics.get('worker_adapter'),
+                'status': worker_result.get('status', 'error'),
+                'accepted': bool(accepted),
+            })
+            metrics.update(
+                compute_tier='T1', model_tier=plan.get('model_tier'),
+                final_model_profile=current['id'],
+                initial_model_profile=initial_profile,
+                model_attempts=len(attempts),
+                model_escalations=escalations,
+            )
+            if accepted:
+                worker_result['route'] = 'bulk_read'
+                worker_result['recommended_route'] = 'bulk_read'
+                return worker_result, plan, attempts
+
+            if (escalations >= max_escalations
+                    or not self._retryable_worker_failure(worker_result, semantic_metrics)):
+                break
+            next_row = model_policy.next_profile(
+                self.semantic.cfg, self.host, current['id'],
+                preset_override=self.model_preset)
+            if not next_row:
+                break
+            current = dict(next_row['profile'])
+            plan['model_tier'] = next_row['model_tier']
+            escalations += 1
+            metrics.update(escalated=True, model_escalations=escalations,
+                           model_tier=next_row['model_tier'])
+
+        bundle, result = self._principal_bundle(
+            sources, selections, direct_limit, 'model_worker_escalation_to_principal')
+        metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                       compute_tier='T2', compute_decision='principal_after_worker',
+                       escalated=bool(attempts), model_attempts=len(attempts),
+                       model_escalations=escalations,
+                       initial_model_profile=initial_profile,
+                       final_model_profile=current['id'])
+        result['model_calls'] = metrics['model_calls']
+        result['worker_attempts'] = attempts
+        return result, plan, attempts
+
     def run(self, arguments):
         worker_limit = self.semantic.limits['max_selected_bytes'] if self.semantic else MAX_SELECTED_BYTES
         direct_limit = min(12_000, worker_limit)
@@ -156,11 +270,17 @@ class QueryEngine:
             'orchestrator_calls': 0, 'compute_tier': None, 'compute_decision': None,
             'orchestrator_input_tokens': None, 'orchestrator_output_tokens': None,
             'orchestrator_elapsed_ms': None, 'escalated': False,
-            'cache': 'disabled'
+            'model_tier': None, 'model_policy_preset': self.model_preset,
+            'model_demand': None, 'model_attempts': 0, 'model_escalations': 0,
+            'initial_model_profile': None, 'final_model_profile': None,
+            'host': self.host, 'cache': 'disabled'
         }
         route = None
         router_result = None
         compute_result = None
+        plan = None
+        attempts = []
+
         if self.router:
             try:
                 router_result = self.router.run(
@@ -192,8 +312,6 @@ class QueryEngine:
                     known_symbols=arguments.get('known_symbols'))
                 metrics.update(
                     orchestrator_calls=1,
-                    compute_tier=compute_result['tier'],
-                    compute_decision=compute_result['decision'],
                     orchestrator_input_tokens=compute_result['usage']['input_tokens'],
                     orchestrator_output_tokens=compute_result['usage']['output_tokens'],
                     orchestrator_elapsed_ms=compute_result['elapsed_ms'])
@@ -201,16 +319,26 @@ class QueryEngine:
                 metrics.update(orchestrator_calls=1, compute_tier='T2',
                                compute_decision='error')
 
-            if compute_result and compute_result['decision'] == 'cheap_worker':
+            adapter = self.semantic.cfg.get('adapter') if self.semantic else None
+            use_model_policy = bool(
+                compute_result and (
+                    self.semantic.cfg.get('model_policy') is not None
+                    or adapter in ('codex-cli', 'cursor-cli', 'host-cli')
+                )
+            )
+            if use_model_policy:
+                result, plan, attempts = self._run_model_policy(
+                    arguments, selections, sources, direct_limit,
+                    question, paths, operation, compute_result, metrics)
+            elif compute_result and compute_result.get('decision') == 'cheap_worker':
+                # Compatibility path for command/chat configs created before model_policy.
                 execution = {
                     'tier': 'T1',
                     'max_output_tokens': self.orchestrator.cfg['compute_policy']['max_cheap_output_tokens'],
                 }
                 worker_result, semantic_metrics = self.semantic.run(
                     _semantic_args(arguments, selections), execution=execution)
-                metrics.update({k: v for k, v in semantic_metrics.items()
-                                if k not in {'route', 'source_bytes', 'compute_tier'}})
-                metrics['model_calls'] = semantic_metrics.get('model_calls', 0)
+                self._merge_semantic_metrics(metrics, semantic_metrics)
                 metrics['compute_tier'] = 'T1'
                 if compute.accepted_worker_result(worker_result):
                     result = worker_result
@@ -223,7 +351,7 @@ class QueryEngine:
                     metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
                                    compute_tier='T2', compute_decision='escalated',
                                    escalated=True)
-                    result['model_calls'] = semantic_metrics.get('model_calls', 0)
+                    result['model_calls'] = metrics['model_calls']
                     result['worker_attempt'] = {
                         'status': worker_result.get('status', 'error'),
                         'accepted': False,
@@ -239,9 +367,7 @@ class QueryEngine:
 
         elif route == 'bulk_read' and self.semantic and self.worker_auto_dispatch:
             result, semantic_metrics = self.semantic.run(_semantic_args(arguments, selections))
-            metrics.update({k: v for k, v in semantic_metrics.items()
-                            if k not in {'route', 'source_bytes'}})
-            metrics['model_calls'] = semantic_metrics.get('model_calls', 0)
+            self._merge_semantic_metrics(metrics, semantic_metrics)
             result['route'] = 'bulk_read'
             result['recommended_route'] = 'bulk_read'
 
@@ -283,23 +409,38 @@ class QueryEngine:
             result['router'] = {'status': 'error', 'fallback': 'local_rules'}
 
         if compute_result:
-            result['orchestration'] = {
+            orchestration = {
                 'tier': metrics['compute_tier'],
-                'initial_tier': compute_result['tier'],
                 'decision': metrics['compute_decision'],
-                'reason': compute_result['reason'],
                 'scores': compute_result['scores'],
                 'model': compute_result['model'],
                 'usage': compute_result['usage'],
                 'escalated': metrics['escalated'],
+                'host': self.host,
             }
+            if plan:
+                orchestration.update({
+                    'reason': plan.get('reason'),
+                    'preset': plan.get('preset'),
+                    'demand': plan.get('demand'),
+                    'model_tier': metrics.get('model_tier'),
+                    'initial_profile': metrics.get('initial_model_profile'),
+                    'final_profile': metrics.get('final_model_profile'),
+                    'attempts': attempts,
+                    'max_profile': plan.get('max_profile'),
+                })
+            else:
+                orchestration['reason'] = compute_result.get('reason')
             if metrics.get('worker_profile'):
-                result['orchestration']['worker_profile'] = metrics['worker_profile']
-                result['orchestration']['worker_model'] = metrics.get('worker_model')
+                orchestration['worker_profile'] = metrics['worker_profile']
+                orchestration['worker_model'] = metrics.get('worker_model')
+                orchestration['worker_reasoning_effort'] = metrics.get('worker_reasoning_effort')
+            result['orchestration'] = orchestration
         elif self.orchestrator and metrics['compute_decision'] == 'error':
             result['orchestration'] = {
                 'tier': 'T2', 'decision': 'principal',
                 'reason': 'orchestrator_error', 'escalated': False,
-                'fallback': 'principal',
+                'fallback': 'principal', 'host': self.host,
             }
         return result, metrics
+
