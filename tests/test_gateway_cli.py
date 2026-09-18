@@ -46,14 +46,14 @@ class GatewayCLITests(unittest.TestCase):
             code,text,err=self.cli('setup','--project',str(self.project),'--agent','codex','--dry-run')
         self.assertEqual(code,0,err)
         self.assertIn('Jev: off',text)
-        self.assertIn('Compaction: off',text)
+        self.assertIn('Compaction: automatic (project-scoped: codex)',text)
         self.assertFalse(self.home.exists())
 
     def test_compaction_dry_run_supports_codex_without_claude(self):
         code,text,err=self.cli('setup','--project',str(self.project),'--agent','codex',
                                '--compaction','on','--dry-run')
         self.assertEqual(code,0,err)
-        self.assertIn('Compaction: on (project-scoped: codex)',text)
+        self.assertIn('Compaction: automatic (project-scoped: codex)',text)
         self.assertFalse((self.project/'.codex/hooks.json').exists())
         self.assertFalse((self.project/'.io-delegation').exists())
 
@@ -61,7 +61,7 @@ class GatewayCLITests(unittest.TestCase):
         code,text,err=self.cli('setup','--project',str(self.project),'--agent','cursor',
                                '--compaction','on','--dry-run')
         self.assertEqual(code,0,err)
-        self.assertIn('Compaction: on (project-scoped: cursor)',text)
+        self.assertIn('Compaction: automatic (project-scoped: cursor)',text)
         self.assertFalse((self.project/'.cursor/hooks.json').exists())
 
     def test_compaction_policy_is_project_local_and_secret_free(self):
@@ -129,6 +129,7 @@ class GatewayCLITests(unittest.TestCase):
         self.assertIn('SessionStart',hooks['hooks'])
         state=gateway.load_state(self.project)
         self.assertEqual(state['compaction_hosts'],['codex'])
+        self.assertEqual(state['compaction_preference'],'on')
         policy=gateway.read_json(self.project/'.io-delegation/compaction.json')
         self.assertEqual(policy['hosts'],['codex'])
         status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
@@ -143,6 +144,40 @@ class GatewayCLITests(unittest.TestCase):
         self.assertIn('postToolUse',hooks['hooks'])
         self.assertIn('stop',hooks['hooks'])
         self.assertEqual(hooks['hooks']['stop'][-1]['loop_limit'],1)
+
+    def test_explicit_compaction_off_persists_until_reenabled(self):
+        code,text,err=self.setup_codex('--compaction','off')
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['compaction_mode'],'off')
+        self.assertEqual(state['compaction_preference'],'off')
+        self.assertFalse((self.project/'.codex/hooks.json').exists())
+
+        code,text,err=self.setup_codex()
+        self.assertEqual(code,0,err)
+        self.assertEqual(gateway.load_state(self.project)['compaction_mode'],'off')
+
+        code,text,err=self.setup_codex('--compaction','on')
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['compaction_mode'],'on')
+        self.assertEqual(state['compaction_preference'],'on')
+        self.assertTrue((self.project/'.codex/hooks.json').is_file())
+
+    def test_legacy_off_state_migrates_to_automatic_compaction(self):
+        code,text,err=self.setup_codex('--compaction','off')
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        path=Path(state['_state_path'])
+        row=gateway.read_json(path)
+        row.pop('compaction_preference',None)
+        gateway.atomic_write(path,gateway.encoded(row))
+
+        code,text,err=self.setup_codex()
+        self.assertEqual(code,0,err)
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['compaction_mode'],'on')
+        self.assertEqual(state['compaction_preference'],'on')
 
     def test_codex_setup_uses_global_mcp_and_real_doctor(self):
         code,text,err=self.setup_codex()
@@ -338,11 +373,17 @@ class GatewayCLITests(unittest.TestCase):
         self.assertFalse(self.home.exists())
         self.assertEqual(config.read_text(encoding='utf-8'),'[mcp_servers.io_context]\ncommand = "other"\n')
 
-    def test_default_setup_does_not_install_hooks(self):
+    def test_default_setup_installs_compaction_but_not_read_guard(self):
         code,text,err=self.setup_codex()
         self.assertEqual(code,0,err)
-        self.assertFalse((self.project/'.io-delegation-hooks').exists())
-        self.assertEqual(gateway.load_state(self.project)['guard_mode'],'off')
+        hooks=gateway.read_json(self.project/'.codex/hooks.json')
+        self.assertIn('PreCompact',hooks['hooks'])
+        self.assertTrue((self.project/'.io-delegation-hooks/codex.compaction.json').is_file())
+        self.assertFalse((self.project/'.io-delegation-hooks/policy.json').exists())
+        state=gateway.load_state(self.project)
+        self.assertEqual(state['compaction_mode'],'on')
+        self.assertEqual(state['compaction_preference'],'on')
+        self.assertEqual(state['guard_mode'],'off')
 
     def test_last_project_can_purge_runtime(self):
         code,text,err=self.setup_codex(); self.assertEqual(code,0,err)
