@@ -90,6 +90,26 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(row['permissions'],{'allow':['Read']})
         self.assertEqual(row['env']['CLAUDE_CODE_ENABLE_FUNCTION_HOOKS'],'1')
 
+    def test_failed_setup_removes_new_compaction_policy(self):
+        real_save=gateway.save_state
+        calls={'n':0}
+        def flaky_save(state):
+            calls['n']+=1
+            if calls['n']==2:
+                raise OSError('fixture final save failure')
+            return real_save(state)
+        registrations={'codex':(None,'unchanged'),'cursor':(None,'unchanged'),
+                       'claude-code':(None,'unchanged')}
+        with patch.object(gateway,'ensure_claude_compaction_plugin',return_value='installed'), \
+             patch.object(gateway,'ensure_claude_function_hooks_flag',return_value='written'), \
+             patch.object(gateway,'sync_global_mcp',return_value=registrations), \
+             patch.object(gateway,'save_state',side_effect=flaky_save):
+            code,text,err=self.cli('setup','--project',str(self.project),'--agent','claude-code',
+                                   '--compaction','on','--jev','off','--no-doctor')
+        self.assertEqual(code,2)
+        self.assertIn('fixture final save failure',err)
+        self.assertFalse(gateway.compaction_policy_path(self.project).exists())
+
     def test_codex_setup_uses_global_mcp_and_real_doctor(self):
         code,text,err=self.setup_codex()
         self.assertEqual(code,0,err)
