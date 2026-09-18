@@ -40,6 +40,7 @@ FAMILIES = {
     'principal', 'small-control', 'targeted', 'worker-eligible',
 }
 VALIDATOR_TAIL_BYTES = 4_000
+CODEX_ISOLATION_TAG = 'codex-isolated-v2'
 
 
 def read_json(path):

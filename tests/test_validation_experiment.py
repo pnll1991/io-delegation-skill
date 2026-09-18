@@ -132,6 +132,7 @@ class ExperimentTests(unittest.TestCase):
         self.assertEqual(tools,[])
 
     def test_codex_base_command_isolates_user_state_equally(self):
+        self.assertEqual(mod.CODEX_ISOLATION_TAG,'codex-isolated-v2')
         with patch('shutil.which',return_value='/synthetic/codex'):
             command=mod.codex_base_command(self.root,'workspace-write')
         text=' '.join(map(str,command))
