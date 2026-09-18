@@ -2,5 +2,6 @@
   "approved": false,
   "adapter": "command",
   "argv": ["{python}", "RUTA_ABSOLUTA_AL_ADAPTADOR_REVISADO.py"],
-  "timeout_seconds": 60
+  "timeout_seconds": 60,
+  "context_auto_dispatch": false
 }

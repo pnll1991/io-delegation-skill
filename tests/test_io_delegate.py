@@ -277,6 +277,14 @@ class ConfigTests(Base):
         with self.assertRaises(d.DelegateError):
             d.load_config(self.config(approved=True, adapter='command', argv='echo unsafe'))
 
+    def test_context_auto_dispatch_must_be_boolean(self):
+        with self.assertRaises(d.DelegateError):
+            d.load_config(self.config(approved=True, adapter='command', argv=['a'],
+                                      context_auto_dispatch='yes'))
+        cfg=d.load_config(self.config(approved=True, adapter='command', argv=['a'],
+                                      context_auto_dispatch=True))
+        self.assertTrue(cfg['context_auto_dispatch'])
+
     def test_missing_configured_key_fails(self):
         with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(d.DelegateError):
             d.load_config(self.config(approved=True, adapter='chat-completions',

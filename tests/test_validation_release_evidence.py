@@ -86,6 +86,16 @@ class ReleaseEvidenceTests(unittest.TestCase):
         _,gate=mod.causal_gate(rows,'direct-selected','semantic-worker',1,'worker')
         self.assertFalse(gate['pass'])
 
+    def test_negative_worker_sample_can_release_only_with_auto_dispatch_disabled(self):
+        rows=[row('w','worker-eligible','direct-selected',success=True),
+              row('w','worker-eligible','semantic-worker',success=False,worker=1,route='bulk_read')]
+        for item in rows: item['tags']=['worker-isolation','jev-disabled','same-selected-bundle']
+        _report,gate=mod.worker_policy_gate(rows,'direct-selected','semantic-worker',1)
+        self.assertTrue(gate['sample_complete'])
+        self.assertFalse(gate['production_default_auto_dispatch'])
+        self.assertTrue(gate['pass'])
+        self.assertEqual(gate['policy'],'experimental-opt-in-only')
+
     def test_causal_gate_rejects_swapped_quality_regression(self):
         rows=[
             row('a','targeted','gateway-local',success=True),
@@ -97,6 +107,26 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.assertEqual(gate['left_successes'],gate['right_successes'])
         self.assertFalse(gate['pass'])
         self.assertEqual(len(gate['regression_run_ids']),1)
+
+    def test_jev_causal_gate_rejects_route_mismatch_even_when_quality_ties(self):
+        left=row('x','targeted','gateway-local',route='targeted_read')
+        right=row('x','targeted','gateway-jev',router=True,route='principal')
+        left['route']['expected']='targeted_read'; right['route']['expected']='targeted_read'
+        _report,gate=mod.causal_gate([left,right],'gateway-local','gateway-jev',1,'jev')
+        self.assertFalse(gate['pass'])
+        self.assertEqual(gate['left_route_mismatch_run_ids'],[])
+        self.assertEqual(gate['right_route_mismatch_run_ids'],[right['run_id']])
+
+    def test_negative_jev_sample_can_release_only_with_default_setup_off(self):
+        left=row('x','targeted','gateway-local',success=True,route='targeted_read')
+        right=row('x','targeted','gateway-jev',success=False,router=True,route='principal')
+        left['route']['expected']='targeted_read'; right['route']['expected']='targeted_read'
+        _report,gate=mod.jev_policy_gate([left,right],'gateway-local','gateway-jev',1)
+        self.assertTrue(gate['sample_complete'])
+        self.assertFalse(gate['production_default_enabled'])
+        self.assertEqual(gate['production_default_mode'],'off')
+        self.assertEqual(gate['policy'],'explicit-opt-in-only')
+        self.assertTrue(gate['pass'])
 
     def test_activation_artifact_is_required_and_fail_closed(self):
         good={'schema':'io-context-activation-evidence/v1','pass':True,'pairs':15,

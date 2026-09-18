@@ -13,6 +13,12 @@ HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
 import paired
 import record
+SCRIPTS=HERE.parents[1]/'skills'/'io-delegation'/'scripts'
+sys.path.insert(0,str(SCRIPTS))
+import context_query
+ROOT=HERE.parents[1]
+sys.path.insert(0,str(ROOT))
+import io_gateway
 
 LARGE_FAMILIES={'large-understanding','multi-file-factual'}
 ISOLATION_TAG='codex-isolated-v2'
@@ -92,6 +98,13 @@ def causal_gate(rows,left,right,min_pairs,component):
     left_ok,right_ok=pair_successes(report)
     regressions=[rhs['run_id'] for _key,lhs,rhs in pairs
                  if lhs.get('success') is True and rhs.get('success') is not True]
+    def route_mismatch(row):
+        route=row.get('route') if isinstance(row.get('route'),dict) else {}
+        expected=route.get('expected')
+        effective=route.get('effective')
+        return expected is not None and effective != expected
+    left_route_mismatches=[row['run_id'] for row in relevant if row.get('arm')==left and route_mismatch(row)]
+    right_route_mismatches=[row['run_id'] for row in relevant if row.get('arm')==right and route_mismatch(row)]
     warnings=list(report.get('warnings',[]))
     called=0
     for family in report.get('families',{}).values():
@@ -99,11 +112,50 @@ def causal_gate(rows,left,right,min_pairs,component):
     never_text='never called Jev' if component=='jev' else 'never called the worker'
     relevant_warning=any(never_text in warning for warning in warnings)
     passed=(isolated and report['pair_count']>=min_pairs and report['incomplete_pair_count']==0 and
-            right_ok>=left_ok and not regressions and called>0 and not relevant_warning)
+            right_ok>=left_ok and not regressions and called>0 and not relevant_warning and
+            not right_route_mismatches)
     return report,{'pass':passed,'pairs':report['pair_count'],'minimum_pairs':min_pairs,
                    'left_successes':left_ok,'right_successes':right_ok,'component_called_pairs':called,
                    'runner_isolation':isolated,'isolation_tag':required_tag,
-                   'regression_run_ids':regressions,'warnings':warnings}
+                   'regression_run_ids':regressions,
+                   'left_route_mismatch_run_ids':left_route_mismatches,
+                   'right_route_mismatch_run_ids':right_route_mismatches,
+                   'warnings':warnings}
+
+
+def jev_policy_gate(rows,left,right,min_pairs):
+    report,causal=causal_gate(rows,left,right,min_pairs,'jev')
+    complete=(causal['runner_isolation'] and causal['pairs']>=min_pairs and
+              report['incomplete_pair_count']==0 and causal['component_called_pairs']>0)
+    default_enabled=io_gateway.DEFAULT_JEV_SETUP_MODE != 'off'
+    passed=causal['pass'] if default_enabled else complete
+    return report,{
+        **causal,
+        'pass':passed,
+        'sample_complete':complete,
+        'production_default_enabled':default_enabled,
+        'production_default_mode':io_gateway.DEFAULT_JEV_SETUP_MODE,
+        'policy':'causal-pass-required' if default_enabled else 'explicit-opt-in-only',
+    }
+
+
+def worker_policy_gate(rows,left,right,min_pairs):
+    report,causal=causal_gate(rows,left,right,min_pairs,'worker')
+    complete=(causal['runner_isolation'] and causal['pairs']>=min_pairs and
+              report['incomplete_pair_count']==0 and causal['component_called_pairs']>0 and
+              not any('never called the worker' in warning for warning in causal['warnings']))
+    default_auto=context_query.DEFAULT_WORKER_AUTO_DISPATCH
+    # A negative worker result is valid release evidence when production removes that
+    # component from the automatic path. If auto-dispatch is ever re-enabled by default,
+    # the stricter no-regression causal gate applies again.
+    passed=causal['pass'] if default_auto else complete
+    return report,{
+        **causal,
+        'pass':passed,
+        'sample_complete':complete,
+        'production_default_auto_dispatch':default_auto,
+        'policy':'causal-pass-required' if default_auto else 'experimental-opt-in-only',
+    }
 
 
 def activation_gate(value):
@@ -132,8 +184,8 @@ def evaluate(args):
     parity=read_json(args.parity)
     security=read_json(args.security)
     dogfood_report,dogfood_g=dogfood_gates(dogfood,args.dogfood_left,args.dogfood_right,args.small_overhead_pct,args.context_ratio)
-    jev_report,jev_g=causal_gate(jev,args.jev_left,args.jev_right,args.min_jev_pairs,'jev')
-    worker_report,worker_g=causal_gate(worker,args.worker_left,args.worker_right,args.min_worker_pairs,'worker')
+    jev_report,jev_g=jev_policy_gate(jev,args.jev_left,args.jev_right,args.min_jev_pairs)
+    worker_report,worker_g=worker_policy_gate(worker,args.worker_left,args.worker_right,args.min_worker_pairs)
     activation_g=activation_gate(activation)
     parity_g={'pass':parity.get('critical_deviations')==0 and parity.get('lifecycle_complete') is True,
               'critical_deviations':parity.get('critical_deviations'),

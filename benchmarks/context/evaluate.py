@@ -208,7 +208,7 @@ def run(manifest,out,live=False,executor=None):
                     cmd+=codex_arguments(wt,audit,task.get('allow_prefixes',[]),task.get('allow_files',[]),config)
                     scope_hint='prefixes='+','.join(task.get('allow_prefixes',[]))+'; files='+','.join(task.get('allow_files',[]))
                     prompt+='\nMCP io_context approved source scope: '+scope_hint+'. If the task names an exact source path, call extract directly with that path; do not search to rediscover it and do not use . or output paths. Use search only when localization is actually needed. For exact HTML/JSON fields prefer one extract call, not one call per field.'
-                    if config:prompt+=' semantic_query is optional over explicit selected fragments only; do not call it for routine deterministic extraction.'
+                    if config:prompt+=' query may use the explicitly opted-in experimental semantic worker over selected fragments only; do not use it for routine deterministic extraction.'
                 else:prompt+='\nUse local tools; no external auxiliary workers.'
                 write(rd/'command.json',cmd+['-']);(rd/'prompt.txt').write_text(prompt,encoding='utf-8')
                 started=time.monotonic()

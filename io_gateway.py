@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent
 SKILL_SOURCE = ROOT / 'skills' / 'io-delegation'
 SERVER_NAME = 'io_context'
 STATE_VERSION = 2
+DEFAULT_JEV_SETUP_MODE = 'off'
 USER_ROOT = Path(os.environ.get('IO_DELEGATION_HOME', str(Path.home()/'.io-delegation'))).expanduser()
 HOST_HOME = Path(os.environ.get('IO_DELEGATION_HOST_HOME', str(Path.home()))).expanduser()
 MARKER_DIR = Path('.io-delegation')
@@ -288,6 +289,12 @@ def validate_worker(root, supplied):
     io_delegate.load_config(str(path)); return path
 
 
+def worker_auto_dispatch(path):
+    if not path: return False
+    row=read_json(path,{})
+    return isinstance(row,dict) and row.get('context_auto_dispatch') is True
+
+
 def env_names_for_state(state):
     explicit=state.get('credential_env_names')
     if isinstance(explicit,list): return list(dict.fromkeys(x for x in explicit if isinstance(x,str) and x))
@@ -538,14 +545,16 @@ def setup_choices(root,args,existing):
     elif args.jev is None and existing and existing.get('router_config'):
         router_mode='on'; router_source=existing['router_config']
     else:
-        router_mode=args.jev or 'auto'; router_source=None
+        router_mode=args.jev or DEFAULT_JEV_SETUP_MODE; router_source=None
     return agents,prefixes,files,guard,activation,worker,router_mode,router_source
 
 
 def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
+    dispatch=worker_auto_dispatch(state.get('worker_config'))
     plan={'project':str(root),'project_id':state['project_id'],'agents':state['agents'],
           'scope':{'prefixes':state['allow_prefixes'],'files':state['allow_files']},
           'smart_routing':bool(state.get('router_config')),'semantic_worker':bool(state.get('worker_config')),
+          'worker_auto_dispatch':dispatch,
           'guard':state['guard_mode'],'activation':state.get('activation_mode','auto'),'actions':actions,'guard_actions':guard_rows,'writes':False}
     if json_mode:
         print(json.dumps(plan,ensure_ascii=False,indent=2)); return
@@ -553,7 +562,10 @@ def print_setup_plan(root,state,actions,guard_rows,json_mode=False):
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
-    print('Worker: '+('configured' if state.get('worker_config') else 'off'))
+    if state.get('worker_config'):
+        print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
+    else:
+        print('Worker: off')
     print('Read guard: '+state['guard_mode'])
     print('Activation: '+state.get('activation_mode','auto'))
     for name,value in actions.items(): print(f'- {name}: {value}')
@@ -787,6 +799,7 @@ def status_data(root):
             'runtime':runtime_bootstrap().is_file(),'smart_routing':bool(state.get('router_config')),
             'credential_envs':{name:bool(os.environ.get(name)) for name in envs},
             'semantic_worker':bool(state.get('worker_config')),
+            'worker_auto_dispatch':worker_auto_dispatch(state.get('worker_config')),
             'guard':guard.get('mode',state.get('guard_mode','off')),
             'activation_mode':state.get('activation_mode','auto'),
             'audit':audit_summary(state)}
@@ -805,7 +818,10 @@ def command_status(args):
     print('Runtime       '+('ready' if data['runtime'] else 'missing'))
     print('Jev router    '+('enabled' if data['smart_routing'] else 'off'))
     for name,present in data['credential_envs'].items(): print(f"Credential    {name}: {'available' if present else 'missing'}")
-    print('Worker        '+('configured' if data['semantic_worker'] else 'off'))
+    if data['semantic_worker']:
+        print('Worker        configured; experimental auto-dispatch '+('on' if data['worker_auto_dispatch'] else 'off'))
+    else:
+        print('Worker        off')
     print('Read guard    '+str(data['guard']))
     print('Activation    '+str(data['activation_mode']))
     a=data['audit']; print(f"Activity      {a['operations']} ops | {a['router_calls']} routed | {a['model_calls']} worker calls | {a['errors']} errors")
@@ -859,7 +875,11 @@ def command_doctor(args):
             add('Jev config','pass',state['router_config']); add('Jev key','pass' if os.environ.get(key) else 'warn',key)
         except Exception as exc: add('Jev config','fail',str(exc))
     if state.get('worker_config'):
-        try: validate_worker(root,state['worker_config']); add('worker config','pass',state['worker_config'])
+        try:
+            validate_worker(root,state['worker_config']); add('worker config','pass',state['worker_config'])
+            enabled=worker_auto_dispatch(state['worker_config'])
+            add('worker auto-dispatch','warn' if enabled else 'pass',
+                'experimental opt-in enabled' if enabled else 'off')
         except Exception as exc: add('worker config','fail',str(exc))
     guard=root/'.io-delegation-hooks/policy.json'
     if state.get('guard_mode')!='off':

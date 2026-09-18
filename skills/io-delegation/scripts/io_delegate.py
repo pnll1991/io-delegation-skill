@@ -188,6 +188,9 @@ def load_config(path: str) -> dict[str, Any]:
     max_calls = cfg.get('max_calls_per_workspace')
     if max_calls is not None and (type(max_calls) is not int or not 1 <= max_calls <= 100):
         raise DelegateError('max_calls_per_workspace debe estar entre 1 y 100.')
+    auto_dispatch = cfg.get('context_auto_dispatch', False)
+    if type(auto_dispatch) is not bool:
+        raise DelegateError('context_auto_dispatch debe ser true o false.')
     if cfg['adapter'] == 'codex-cli':
         model = cfg.get('model')
         if not isinstance(model, str) or not model.strip() or any(x in model.upper() for x in ('YOUR_', 'REEMPLAZAR', '<', '>')):

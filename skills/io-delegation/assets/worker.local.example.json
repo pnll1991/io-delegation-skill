@@ -8,5 +8,6 @@
   "token_limit_field": "max_tokens",
   "reader_max_tokens": 1600,
   "writer_max_tokens": 4096,
-  "timeout_seconds": 60
+  "timeout_seconds": 60,
+  "context_auto_dispatch": false
 }
