@@ -191,13 +191,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise RouterError("HTTP redirect blocked; review the TypeSafe endpoint.")
 
 
-def call_typesafe(payload: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+def request_typesafe(payload: dict[str, Any], cfg: dict[str, Any],
+                     *, user_agent: str = "io-delegation/decision-router") -> dict[str, Any]:
     key = os.environ.get(cfg["api_key_env"])
     if not key:
         raise RouterError("The configured TypeSafe API key environment variable is missing.")
     request = urllib.request.Request(endpoint(cfg), data=encode(payload), method="POST",
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
-                 "Accept": "application/json", "User-Agent": "io-delegation/decision-router"})
+                 "Accept": "application/json", "User-Agent": user_agent})
     opener = urllib.request.build_opener(NoRedirect)
     try:
         with opener.open(request, timeout=cfg["timeout_seconds"]) as response:
@@ -212,7 +213,13 @@ def call_typesafe(payload: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any
         value = json.loads(raw)
     except json.JSONDecodeError:
         raise RouterError("TypeSafe returned invalid JSON.") from None
-    return parse_response(value, cfg)
+    if not isinstance(value, dict):
+        raise RouterError("TypeSafe returned an invalid response object.")
+    return value
+
+
+def call_typesafe(payload: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    return parse_response(request_typesafe(payload, cfg), cfg)
 
 
 def parse_response(value: Any, cfg: dict[str, Any]) -> dict[str, Any]:
