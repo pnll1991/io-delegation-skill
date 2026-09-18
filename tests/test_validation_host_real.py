@@ -16,6 +16,7 @@ class HostRealTests(unittest.TestCase):
         text=' '.join(map(str,cmd))
         self.assertIn('--agent cursor',text)
         self.assertIn('--jev off',text)
+        self.assertIn('--orchestration off',text)
         self.assertIn('--guard off',text)
         self.assertIn('--activation always',text)
         self.assertEqual(cmd.count('--allow-file'),4)
