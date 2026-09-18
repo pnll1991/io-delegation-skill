@@ -22,7 +22,7 @@ def row(task,family,arm,rep=1,success=True,tokens=100,source=1000,selected=100,r
         'worker':{'calls':worker,'accepted':worker,'rejected':0,'usage':None,'raw_tokens':None},
         'context':{'source_bytes':source,'selected_bytes':selected,'result_bytes':selected},'timing':{'wall_ms':1000},
         'validator':{'status':'pass' if success else 'fail'},'route':{'effective':route,'confidence':None,'fallback':False},
-        'rework':0,'errors':[],
+        'rework':0,'errors':[],'tags':['codex-isolated-v2'],
     }
 
 class ReleaseEvidenceTests(unittest.TestCase):
@@ -56,6 +56,24 @@ class ReleaseEvidenceTests(unittest.TestCase):
         rows[-1]['router']['called']=True
         _,gate=mod.causal_gate(rows,'gateway-local','gateway-jev',1,'jev')
         self.assertTrue(gate['pass'])
+
+    def test_dogfood_and_causal_gates_reject_pre_isolation_rows(self):
+        rows=[]
+        families=[('large-understanding',5),('multi-file-factual',5),('cross-file-behavior',4),('principal',3),('small-control',3)]
+        for family,count in families:
+            for i in range(count):
+                task=f'{family}-{i}'
+                rows += [row(task,family,'control',route='bypass',source=0,selected=0),
+                         row(task,family,'gateway-smart',route='principal' if family=='principal' else 'targeted_read')]
+        rows[0]['tags']=[]
+        _,gates=mod.dogfood_gates(rows,'control','gateway-smart',5,.5)
+        self.assertFalse(gates['runner_isolation']['pass'])
+
+        causal=[row('x','targeted','gateway-local'),row('x','targeted','gateway-jev',router=True)]
+        causal[0]['tags']=[]
+        _,gate=mod.causal_gate(causal,'gateway-local','gateway-jev',1,'jev')
+        self.assertFalse(gate['pass'])
+        self.assertFalse(gate['runner_isolation'])
 
     def test_causal_gate_rejects_swapped_quality_regression(self):
         rows=[
