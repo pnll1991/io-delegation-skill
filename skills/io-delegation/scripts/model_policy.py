@@ -410,7 +410,7 @@ def summary(cfg: dict[str, Any], hosts: list[str] | tuple[str, ...],
     result = {}
     adapter = cfg.get("adapter")
     explicit = cfg.get("model_policy") is not None
-    if not explicit and adapter not in ("codex-cli", "cursor-cli", "host-cli"):
+    if not explicit and adapter != "host-cli":
         return result
     for host in hosts:
         if host not in ("codex", "cursor"):
