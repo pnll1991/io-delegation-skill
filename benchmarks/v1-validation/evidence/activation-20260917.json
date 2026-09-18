@@ -1,0 +1,56 @@
+{
+  "schema": "io-context-activation-evidence/v1",
+  "left_arm": "gate-always",
+  "right_arm": "gate-auto",
+  "pairs": 15,
+  "incomplete_pairs": 0,
+  "valid_pairs": 15,
+  "left_successes": 15,
+  "right_successes": 15,
+  "false_enable_run_ids": [],
+  "context_leak_run_ids": [],
+  "unexpected_call_run_ids": [],
+  "quality_regression_run_ids": [],
+  "principal_token_delta_pct": {
+    "n": 15,
+    "p25": -53.59986302095378,
+    "median": -31.6397901690305,
+    "p75": -11.596862073861313,
+    "min": -74.02063958609564,
+    "max": 74.98323600053645
+  },
+  "wall_time_delta_pct": {
+    "n": 15,
+    "p25": -39.65836053478109,
+    "median": -22.552610476582647,
+    "p75": -7.46459460591386,
+    "min": -85.74516068408194,
+    "max": 60.94121955685772
+  },
+  "thresholds": {
+    "required_pairs": 15,
+    "min_valid_pairs": 12,
+    "max_token_overhead_pct": 5.0,
+    "max_wall_overhead_pct": 10.0
+  },
+  "gates": {
+    "complete_pairs": true,
+    "functional_quality": true,
+    "valid_efficiency_sample": true,
+    "all_small_controls_bypass": true,
+    "bypass_has_zero_gateway_context": true,
+    "bypass_has_zero_router_worker_calls": true,
+    "principal_token_overhead": true,
+    "wall_time_overhead": true
+  },
+  "pass": true,
+  "evidence_meta": {
+    "harness_commit": "c59e204be1ff4770d0f5215dc926ca7b21ed6659",
+    "runs_sha256": "82720cc880ab46c4273bf0f68e84582021790e6bc61a770c2db79a0f6116704e",
+    "paired_sha256": "806e9bb5c3af8a022149720859a912b909b74a4248d55ab47022368f4791f3a9",
+    "sample": "3 held-out small controls x 2 arms x 5 repetitions",
+    "jev": false,
+    "worker": false,
+    "note": "Raw run records remain local; this committed artifact contains metadata/aggregate evidence only."
+  }
+}
