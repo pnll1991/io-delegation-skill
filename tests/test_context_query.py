@@ -173,6 +173,28 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['model_calls'],0)
         self.assertEqual(result['orchestration']['initial_tier'],'T2')
 
+    def test_existing_codex_cli_without_model_policy_keeps_approved_model(self):
+        worker=self.base/'legacy-codex-worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='codex-cli',
+            model='approved-existing-model',reasoning_effort='low',timeout_seconds=5)))
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:dict(
+            status='ok',model='jev-test',tier='T1',decision='cheap_worker',
+            reason='cheap_first_policy',scores=dict(cheap_model_sufficient=.95,risk_high=.05,
+            uncertainty_high=.05,reasoning_required=.05,parallelism_useful=.1),
+            usage=dict(input_tokens=20,output_tokens=4),elapsed_ms=3)
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        seen=[]
+        def reply(job,cfg,root,record):
+            seen.append((cfg['model'],cfg.get('reasoning_effort')))
+            return worker_reply(job,cfg,root,record)
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(result['route'],'bulk_read')
+        self.assertEqual(seen,[('approved-existing-model','low')])
+        self.assertNotIn('initial_profile',result['orchestration'])
+
     def host_worker(self, **policy):
         worker=self.base/'host-worker.json'
         row=dict(approved=True,adapter='host-cli',timeout_seconds=5)
