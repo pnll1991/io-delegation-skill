@@ -120,6 +120,32 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual(derived['adapter'],'cursor-cli')
         self.assertEqual(derived['cursor_model'],'gpt-5.6-luna[effort=high]')
 
+    def test_cursor_cost_preset_can_end_below_global_ceiling(self):
+        row=policy.resolve({'adapter':'host-cli'},'cursor','cost')
+        self.assertEqual(row['max_profile'],'sol-high')
+        self.assertEqual(row['order'][-1],'sol-medium')
+
+    def test_custom_registry_infers_custom_ceiling(self):
+        cfg={'adapter':'host-cli','model_policy':{'hosts':{'codex':{
+            'profiles':[
+                {'id':'a','model':'a-model','effort':'low','capability':.4,'cost_index':.1},
+                {'id':'b','model':'b-model','effort':'medium','capability':1.0,'cost_index':.8},
+            ],
+            'orders':{'cost':['a','b'],'balanced':['a','b'],'quality':['b']}
+        }}}}
+        row=policy.resolve(cfg,'codex')
+        self.assertEqual(row['max_profile'],'b')
+
+    def test_host_specific_executable_is_applied(self):
+        cfg={'adapter':'host-cli','codex_executable':'/approved/codex',
+             'cursor_executable':'/approved/agent'}
+        codex=policy.resolve(cfg,'codex')['table']['luna-medium']
+        derived,_=policy.apply_profile(cfg,'codex',codex)
+        self.assertEqual(derived['executable'],'/approved/codex')
+        cursor=policy.resolve(cfg,'cursor')['table']['luna-medium']
+        derived,_=policy.apply_profile(cfg,'cursor',cursor)
+        self.assertEqual(derived['executable'],'/approved/agent')
+
     def test_next_profile_respects_effective_order(self):
         cfg={'adapter':'host-cli'}
         nxt=policy.next_profile(cfg,'cursor','luna-high')
