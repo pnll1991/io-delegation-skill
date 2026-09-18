@@ -1,6 +1,6 @@
 {
   "schema": "io-orchestration-ab/v1",
-  "description": "Fill with paired real-host measurements for the same task/commit. Token totals must include all reported usage; never substitute zero for unknown usage.",
+  "description": "Fill with paired real-host measurements for the same task/commit. Token totals must include principal + worker + Jev control usage; never substitute zero for unknown usage. Preserve selected model profiles and attempt counts.",
   "pairs": [
     {
       "id": "example-task:r1",
@@ -22,7 +22,10 @@
         "wall_ms": 0
       },
       "tier": "T1",
-      "escalated": false
+      "escalated": false,
+      "initial_profile": "luna-medium",
+      "final_profile": "luna-medium",
+      "model_attempts": 1
     }
   ]
 }
