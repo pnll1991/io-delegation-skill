@@ -1,4 +1,4 @@
-# I/O Delegation V1 — Context Gateway
+# I/O Delegation V1.2 — Context Gateway
 
 ## Product definition
 
@@ -17,10 +17,10 @@ coding agent
                     |
               local rules / Jev
                /      |       \
-        targeted   principal   experimental worker
+        targeted   principal   cheap-first T1
 ```
 
-Critical reasoning and edits stay in the main agent. Jev is optional. The semantic worker remains experimental and is not part of the default automatic V1 path.
+Critical reasoning and edits stay in the main agent. The route-selector Jev remains optional. When an approved worker exists, compute orchestration is automatic but conservative: local rules keep obvious T0/T2 work out of Jev, and only a bulk factual candidate can receive one validated T1 cheap-worker attempt.
 
 ## Real use cases
 
@@ -28,7 +28,7 @@ Core cases:
 
 1. **Understand a large or unfamiliar repository.** Locate relevant sources, extract bounded evidence, then keep causal reasoning in the main agent.
 2. **Audit many files.** HTML/JSON/config inventories should use deterministic extraction instead of making an LLM read every file.
-3. **Compare behavior across files.** `query` returns bounded selected evidence; experimental worker dispatch requires a separately reviewed opt-in.
+3. **Compare behavior across files.** `query` returns bounded selected evidence; with an approved worker, cheap-first orchestration may answer a bounded factual comparison in T1 and escalates failures to the principal.
 4. **Protect critical reasoning.** Security, architecture and debugging should normally route back to the principal agent with bounded evidence.
 5. **Control context and observe routing.** Audit records expose routes, cache/model calls and errors without logging source contents.
 
@@ -69,8 +69,9 @@ By default setup:
 - installs the self-contained skill
 - registers one machine-local/global `io_context` MCP per host and resolves the active project at runtime
 - auto-detects a safe source scope
-- keeps Jev off by default; explicit `--jev on`, `--jev auto`, or a reviewed router config is required
-- keeps semantic-worker auto-dispatch off by default; an approved config plus explicit experimental opt-in is required to enable it
+- keeps the experimental Jev route selector off by default; explicit `--jev on`, `--jev auto`, or a reviewed router config is required
+- when an approved worker is configured, enables Jev cheap-first compute orchestration in `auto` mode; `--orchestration off` is the persistent escape hatch
+- keeps the older unconditional `context_auto_dispatch` path off unless explicitly enabled
 - leaves the read guard off unless explicitly requested
 - runs `doctor`
 
@@ -91,7 +92,7 @@ Implemented:
 - [x] Keep `search` and `extract` deterministic and local
 - [x] Route `query` with local fallback rules and optional Jev
 - [x] Call Jev from the MCP/host process, not the agent shell
-- [x] Keep semantic worker selected-fragment only and auto-dispatch off by default after the isolated worker benchmark
+- [x] Keep semantic workers selected-fragment only; leave unconditional auto-dispatch off and add separately gated T0/T1/T2 cheap-first orchestration
 - [x] Fall back safely when Jev or the worker is unavailable
 - [x] Add one-command `setup`
 - [x] Add `status` and real-MCP `doctor`
@@ -108,7 +109,7 @@ Implemented:
 - [x] Share one global MCP across multiple configured projects and remove it only after the last project
 - [x] Validate the global bootstrap in a real Codex session (`io_context.extract` -> `42`)
 
-Worker validation result (#15): the isolated 25-pair sample found no material principal-token compression, about +97% median principal+worker token overhead, roughly +16.3 s median wall-time overhead, 2/25 accepted worker responses, and one clean quality regression. V1 therefore removes semantic-worker auto-dispatch from the default production path; the implementation remains experimental for explicit opt-in and compatibility testing.
+Worker validation result (#15): the isolated 25-pair sample found no material principal-token compression, about +97% median principal+worker token overhead, roughly +16.3 s median wall-time overhead, 2/25 accepted worker responses, and one clean quality regression. V1 therefore keeps **unconditional** semantic-worker auto-dispatch out of the default path. The new cheap-first path is separately gated by Jev + deterministic risk thresholds + literal-evidence validation and requires its own paired cost evidence before claiming savings.
 
 Jev validation result (#14): the repeated 20-pair isolated sample completed with 11/20 successes in each arm. Jev was actually called in 9 pairs. Among those called pairs there were no clean quality regressions and one quality gain; the only arm-level regression occurred in a pair where Jev was not called. The Jev arm still produced 7 effective-route mismatches overall, and the multi-file family never reached Jev. V1 therefore does not auto-enable Jev from `TYPESAFE_API_KEY`; Jev remains explicit opt-in while the local deterministic gateway is the default path. The machine-readable evidence is `benchmarks/v1-validation/evidence/jev-ab-20260918.json`.
 
@@ -119,6 +120,8 @@ Validation remaining before calling V1 generally useful:
 - [x] [#14](https://github.com/pnll1991/io-delegation-skill/issues/14) Repeat the Jev A/B families 5 times and preserve all negative runs
 - [x] Measure selected bytes/context returned separately from principal, router and worker token domains
 - [x] Record routing mismatches, router calls and unnecessary worker calls
+- [x] Add T0/T1/T2 compute telemetry, escalation accounting and a fail-closed orchestration A/B evaluator
+- [ ] Collect at least 20 paired quality-passing real-host orchestration cases with complete principal + worker + Jev accounting
 
 Distribution / UX follow-ups:
 
