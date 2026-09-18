@@ -66,6 +66,8 @@ class CursorCLIIntegration(unittest.TestCase):
         deny=row['policy']['permissions']['deny']
         self.assertIn('Shell(*)',deny);self.assertIn('Write(**)',deny)
         self.assertIn('WebFetch(*)',deny);self.assertIn('Mcp(*:*)',deny)
+        self.assertIn('Read(../**)',deny);self.assertIn('Read(/**)',deny)
+        self.assertIn('Read(*:/**)',deny);self.assertIn('Read(.cursor/**)',deny)
         self.assertEqual(metrics['usage']['input_tokens'],80)
         self.assertEqual(metrics['usage']['cached_input_tokens'],20)
         self.assertEqual(metrics['usage']['cache_write_input_tokens'],4)
