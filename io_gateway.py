@@ -265,6 +265,20 @@ def external_file(root, value, label):
     return path
 
 
+def remove_generated_config(path):
+    if not path:
+        return False
+    candidate=Path(path)
+    try:
+        candidate.resolve().relative_to(configs_dir().resolve())
+    except (ValueError,OSError):
+        return False
+    if candidate.is_file():
+        candidate.unlink()
+        return True
+    return False
+
+
 def router_enabled(mode, env_name):
     return mode == 'on' or (mode == 'auto' and bool(os.environ.get(env_name)))
 
@@ -911,6 +925,9 @@ def command_setup(args):
             allow_tracked=args.allow_tracked_config)
         sync_compaction_policy(root,compaction,args.typesafe_env,agents,dry_run=False)
         save_state(state)
+        if (existing and existing.get('orchestrator_generated')
+                and existing.get('orchestrator_config') != state.get('orchestrator_config')):
+            remove_generated_config(existing.get('orchestrator_config'))
     except Exception:
         # Restore state/global registration. The global compaction plugin may
         # remain installed, but without a project policy it is inert.
@@ -1006,11 +1023,7 @@ def command_remove(args):
         else:
             if candidate.is_file(): candidate.unlink()
     if state.get('orchestrator_generated') and state.get('orchestrator_config'):
-        candidate=Path(state['orchestrator_config'])
-        try: candidate.resolve().relative_to(configs_dir().resolve())
-        except ValueError: pass
-        else:
-            if candidate.is_file(): candidate.unlink()
+        remove_generated_config(state.get('orchestrator_config'))
     if args.purge_data: shutil.rmtree(state.get('audit_root',''),ignore_errors=True)
     if args.purge_runtime and not remaining: shutil.rmtree(USER_ROOT/'runtime',ignore_errors=True)
     print(f'I/O Delegation removed from {root}')
