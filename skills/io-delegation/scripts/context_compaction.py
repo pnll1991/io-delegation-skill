@@ -14,6 +14,7 @@ tool call occurs after compaction.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import hashlib
 import json
@@ -500,8 +501,10 @@ def ask_candidates(
         batches.append(current)
 
     answers: dict[str, Any] = {}
-    for batch in batches:
-        response = asker(state, batch, policy)
+    workers = min(8, len(batches))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        responses = list(pool.map(lambda batch: asker(state, batch, policy), batches))
+    for response in responses:
         block = response.get("answers")
         if not isinstance(block, dict):
             raise CompactionError("TypeSafe response is missing answers.")
