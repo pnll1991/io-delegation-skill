@@ -617,7 +617,19 @@ def compaction_hook_record(root, agent):
 def compaction_hook_installed(root, agent):
     if agent == 'claude-code':
         return claude_compaction_installed() and claude_function_hooks_enabled()
-    return compaction_hook_record(root,agent).is_file()
+    record=read_json(compaction_hook_record(root,agent),{})
+    config=read_json(Path(root)/HOOK_CONFIG[agent],{})
+    if not isinstance(record,dict) or not isinstance(config,dict): return False
+    hooks=config.get('hooks',{})
+    if not isinstance(hooks,dict): return False
+    entries=record.get('entries',[])
+    if not isinstance(entries,list) or not entries: return False
+    for row in entries:
+        if not isinstance(row,dict): return False
+        event=row.get('event'); entry=row.get('entry')
+        values=hooks.get(event,[])
+        if not isinstance(values,list) or entry not in values: return False
+    return True
 
 
 def run_compaction_hook_setup(root, agents, mode, *, dry_run=False, allow_tracked=False):
