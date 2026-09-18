@@ -113,47 +113,42 @@ The installer preserves other settings and hooks, backs up changed configuration
 [Policy, supported forms, removal and real-host verification](skills/io-delegation/references/ENFORCEMENT.md) · [Hook tests](tests/test_read_guard.py)
 
 
-## Cheap-first Jev model orchestration
+## Host-aware Jev model orchestration
 
-With an approved worker, I/O Delegation can optimize **total cost per validated task** rather than sending every semantic read to the strongest model. Local routing first assigns obvious work to T0 or T2; Jev is called only for a bulk factual candidate.
+With an approved CLI worker, Jev scores task requirements while a **local, editable policy** chooses the model. The default is `balanced`; users can switch to `cost` or `quality` without editing JSON.
 
 ```text
-T0 local/deterministic
-        |
-bulk factual candidate -> Jev compute scores -> T1 cheap worker -> validator -> done
-                                      |                    |
-                                      |                    +-> fail/unknown -> T2 principal
-                                      +-> risk/uncertainty -> T2 principal
+bulk factual candidate
+        ↓
+Jev requirement scores
+        ↓
+local model policy
+   ┌────┴──────────────────────────────┐
+Codex                                 Cursor
+Luna medium                           Luna medium
+Luna high                             Luna high
+Terra medium                          Sol medium
+Sol medium                            Sol high
+Astra low  ← default hard ceiling
 ```
 
-The default scorer gates are conservative: cheap sufficiency must be at least 0.78, while high-risk, uncertainty and reasoning-required scores must remain below their configured bounds. Debugging, architecture, security, editing and generation are hard T2 paths. Jev never invents a provider or model.
+The selector does not blindly start at the cheapest model. It estimates normalized task demand, filters profiles above that demand and below the user's ceiling, then minimizes a preset-specific cost/capability objective. A difficult task can therefore start directly at Sol or Astra. A valid-but-incomplete answer may escalate to the next approved profile; timeouts, transport errors and unknown usage go directly back to the principal.
 
-An optional `compute_profiles.cheap` block in the already approved worker configuration can select a cheaper model/reasoning effort for Codex CLI or a cheaper model/output cap for a compatible Chat Completions worker. No profile means T1 uses the approved base worker.
-
-```json
-{
-  "approved": true,
-  "adapter": "codex-cli",
-  "model": "strong-default-model",
-  "reasoning_effort": "medium",
-  "compute_profiles": {
-    "cheap": {
-      "model": "approved-cheap-model",
-      "reasoning_effort": "low"
-    }
-  }
-}
-```
-
-Setup behavior:
+The defaults are host-specific. Codex uses current OpenAI positioning/pricing and caps at **Astra low**. Cursor uses CursorBench 4.0 efficiency data; its balanced ladder skips Terra because Luna-high had better benchmark score at much lower reported task cost. Astra is not in the default Cursor registry because the current Cursor model/benchmark data used for this policy does not list it.
 
 ```bash
-io-delegation setup --project . --worker-config /private/worker.json
-io-delegation setup --project . --orchestration off
-io-delegation setup --project . --orchestration on
+io-delegation setup --project . \
+  --worker-config /private/worker.host-cli.json \
+  --model-preset balanced
+
+# Other project-scoped presets
+io-delegation setup --project . --model-preset cost
+io-delegation setup --project . --model-preset quality
 ```
 
-Telemetry records T0/T1/T2, escalations, worker usage and Jev routing/orchestration usage. System accounting includes the Jev control-plane tokens; missing reported usage makes accounting incomplete instead of free. See [Jev compute orchestration](skills/io-delegation/references/ORCHESTRATION.md).
+Advanced users can replace the registry/order, lower or raise ceilings, block profiles, bound escalations, and explicitly opt into Cursor's native Router with an exact reviewed model string. Copy `skills/io-delegation/assets/worker.host-cli.example.json` as a starting point. Jev never invents model IDs.
+
+Telemetry records host, demand, selected profile/model/effort, attempts, escalations and reported worker/Jev usage. Unknown usage remains unknown. See [host-aware orchestration](skills/io-delegation/references/ORCHESTRATION.md) for defaults, research references and the full schema.
 
 ## Automatic Jev-guided context compaction
 
