@@ -49,9 +49,11 @@ class CursorCLIIntegration(unittest.TestCase):
     def test_cursor_worker_is_ask_mode_isolated_and_accounted(self):
         captured=[];original=rt.run_process
         def spy(argv,**kw):
-            folder=Path(kw['cwd'])
-            captured.append(dict(argv=list(argv),prompt=(folder/'input.txt').read_text(),
-                                 policy=json.loads((folder/'.cursor/cli.json').read_text())))
+            if kw.get('cwd') is not None:
+                folder=Path(kw['cwd'])
+                if (folder/'input.txt').is_file():
+                    captured.append(dict(argv=list(argv),prompt=(folder/'input.txt').read_text(),
+                                         policy=json.loads((folder/'.cursor/cli.json').read_text())))
             return original(argv,**kw)
         with mock.patch.object(rt,'run_process',side_effect=spy):
             output,metrics=rt.invoke_cursor(self.job(),self.cfg)
