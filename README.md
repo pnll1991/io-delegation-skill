@@ -10,7 +10,7 @@
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits; optional TypeSafe Jev routing and semantic workers are used only when they add value.
+I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing is optional; the semantic worker is experimental and is not auto-dispatched by default.
 
 ```text
 agent -> io_context -> search / extract / query
@@ -20,7 +20,7 @@ agent -> io_context -> search / extract / query
                       targeted  principal  worker
 ```
 
-The gateway works without an external model. Jev and a semantic worker are optional. Source contents are not sent to Jev; it receives the task plus aggregate metadata.
+The gateway works without an external model. Jev is optional. Source contents are not sent to Jev; it receives the task plus aggregate metadata. A configured semantic worker stays out of the automatic path unless its reviewed config explicitly sets `context_auto_dispatch: true`.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ io-delegation.cmd setup --project "D:\\path\\to\\project"
 ./io-delegation setup --project "/path/to/project"
 ```
 
-Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, enables Jev only when `TYPESAFE_API_KEY` is available, leaves the semantic worker off unless explicitly configured, keeps the read guard **off by default**, and runs `doctor`.
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, enables Jev only when `TYPESAFE_API_KEY` is available, keeps semantic-worker auto-dispatch **off by default**, keeps the read guard **off by default**, and runs `doctor`.
 
 Preview with zero writes, then inspect the installation at any time:
 
@@ -57,6 +57,8 @@ io-delegation setup --project . --agent all --jev on
 io-delegation setup --project . --worker-config /private/worker.json
 io-delegation setup --project . --guard enforce
 ```
+
+`--worker-config` only makes an approved worker available. Automatic `query` dispatch remains experimental and additionally requires `"context_auto_dispatch": true` inside that reviewed worker config.
 
 Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP with `${workspaceFolder}`, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
 

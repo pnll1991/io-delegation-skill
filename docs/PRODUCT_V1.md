@@ -17,10 +17,10 @@ coding agent
                     |
               local rules / Jev
                /      |       \
-        targeted   principal   semantic worker
+        targeted   principal   experimental worker
 ```
 
-Critical reasoning and edits stay in the main agent. Jev and semantic workers are optional accelerators.
+Critical reasoning and edits stay in the main agent. Jev is optional. The semantic worker remains experimental and is not part of the default automatic V1 path.
 
 ## Real use cases
 
@@ -28,7 +28,7 @@ Core cases:
 
 1. **Understand a large or unfamiliar repository.** Locate relevant sources, extract bounded evidence, then keep causal reasoning in the main agent.
 2. **Audit many files.** HTML/JSON/config inventories should use deterministic extraction instead of making an LLM read every file.
-3. **Compare behavior across files.** `query` may route selected evidence to a semantic worker when compact cross-file extraction is useful.
+3. **Compare behavior across files.** `query` returns bounded selected evidence; experimental worker dispatch requires a separately reviewed opt-in.
 4. **Protect critical reasoning.** Security, architecture and debugging should normally route back to the principal agent with bounded evidence.
 5. **Control context and observe routing.** Audit records expose routes, cache/model calls and errors without logging source contents.
 
@@ -70,7 +70,7 @@ By default setup:
 - registers one machine-local/global `io_context` MCP per host and resolves the active project at runtime
 - auto-detects a safe source scope
 - enables Jev only when `TYPESAFE_API_KEY` is already available
-- leaves the semantic worker off unless an approved config is supplied
+- keeps semantic-worker auto-dispatch off by default; an approved config plus explicit experimental opt-in is required to enable it
 - leaves the read guard off unless explicitly requested
 - runs `doctor`
 
@@ -91,11 +91,11 @@ Implemented:
 - [x] Keep `search` and `extract` deterministic and local
 - [x] Route `query` with local fallback rules and optional Jev
 - [x] Call Jev from the MCP/host process, not the agent shell
-- [x] Keep semantic worker optional and selected-fragment only
+- [x] Keep semantic worker selected-fragment only and auto-dispatch off by default after the isolated worker benchmark
 - [x] Fall back safely when Jev or the worker is unavailable
 - [x] Add one-command `setup`
 - [x] Add `status` and real-MCP `doctor`
-- [x] Register portable/global MCP entries: Codex user config, Cursor global `${workspaceFolder}`, Claude user scope
+- [x] Register portable/global MCP entries: Codex user config, Cursor global config resolved from workspace cwd, Claude user scope
 - [x] Store machine-local state/audits/configs outside the project
 - [x] Never persist the TypeSafe API-key value
 - [x] Keep read guard off by default; tracked hook configs require explicit override
@@ -107,6 +107,8 @@ Implemented:
 - [x] Refresh the registered Python executable on setup reruns
 - [x] Share one global MCP across multiple configured projects and remove it only after the last project
 - [x] Validate the global bootstrap in a real Codex session (`io_context.extract` -> `42`)
+
+Worker validation result (#15): the isolated 25-pair sample found no material principal-token compression, about +97% median principal+worker token overhead, roughly +16.3 s median wall-time overhead, 2/25 accepted worker responses, and one clean quality regression. V1 therefore removes semantic-worker auto-dispatch from the default production path; the implementation remains experimental for explicit opt-in and compatibility testing.
 
 Validation remaining before calling V1 generally useful:
 

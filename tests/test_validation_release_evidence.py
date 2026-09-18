@@ -86,6 +86,16 @@ class ReleaseEvidenceTests(unittest.TestCase):
         _,gate=mod.causal_gate(rows,'direct-selected','semantic-worker',1,'worker')
         self.assertFalse(gate['pass'])
 
+    def test_negative_worker_sample_can_release_only_with_auto_dispatch_disabled(self):
+        rows=[row('w','worker-eligible','direct-selected',success=True),
+              row('w','worker-eligible','semantic-worker',success=False,worker=1,route='bulk_read')]
+        for item in rows: item['tags']=['worker-isolation','jev-disabled','same-selected-bundle']
+        _report,gate=mod.worker_policy_gate(rows,'direct-selected','semantic-worker',1)
+        self.assertTrue(gate['sample_complete'])
+        self.assertFalse(gate['production_default_auto_dispatch'])
+        self.assertTrue(gate['pass'])
+        self.assertEqual(gate['policy'],'experimental-opt-in-only')
+
     def test_causal_gate_rejects_swapped_quality_regression(self):
         rows=[
             row('a','targeted','gateway-local',success=True),

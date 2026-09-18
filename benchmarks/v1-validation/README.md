@@ -49,7 +49,7 @@ python benchmarks/v1-validation/activation_preflight.py \
 
 Small controls must bypass; broad understanding/audit/cross-file families must enable. Mismatches are evidence, not an instruction to auto-tune thresholds.
 
-The held-out overhead sample is. Evidence is accepted only when every run's persisted `command.json` satisfies the `codex-isolated-v2` command contract; this prevents pre-isolation historical samples from satisfying release gates.
+Evidence is accepted only when every run's persisted `command.json` satisfies the `codex-isolated-v2` command contract; this prevents pre-isolation historical samples from satisfying release gates.
 
 The held-out overhead sample is:
 

@@ -8,7 +8,7 @@
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation es un **context gateway** para agentes de código. Expone tres herramientas MCP principales: `search`, `extract` y `query`. El agente principal conserva depuración, arquitectura, seguridad y ediciones finales; TypeSafe Jev y el worker semántico son opcionales.
+I/O Delegation es un **context gateway** para agentes de código. Expone tres herramientas MCP principales: `search`, `extract` y `query`. El agente principal conserva depuración, arquitectura, seguridad y ediciones finales. TypeSafe Jev es opcional; el worker semántico queda experimental y no se auto-despacha por defecto.
 
 ```text
 agente -> io_context -> search / extract / query
@@ -33,7 +33,7 @@ io-delegation.cmd setup --project "D:\\ruta\\al\\proyecto"
 ./io-delegation setup --project "/ruta/al/proyecto"
 ```
 
-`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, habilita Jev si `TYPESAFE_API_KEY` existe, deja el worker apagado salvo configuración explícita, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
+`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, habilita Jev si `TYPESAFE_API_KEY` existe, deja el auto-dispatch del worker **apagado por defecto**, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
 
 ```bash
 io-delegation setup --project . --dry-run
@@ -52,7 +52,9 @@ io-delegation setup --project . --worker-config /ruta/privada/worker.json
 io-delegation setup --project . --guard enforce
 ```
 
-Las credenciales reales no se escriben en el proyecto: la configuración MCP referencia variables de entorno. Codex usa configuración administrada a nivel usuario, Cursor un MCP global con `${workspaceFolder}` y Claude Code scope `user` cuando su CLI está disponible. Ver [diseño V1](docs/PRODUCT_V1.md) e [instalación V1](docs/INSTALLATION_V1.md). El flujo manual anterior (`install.py`, runner y herramientas de compatibilidad) sigue disponible.
+`--worker-config` sólo deja disponible un worker ya aprobado. El despacho automático desde `query` sigue siendo experimental y además exige `"context_auto_dispatch": true` dentro de esa configuración revisada.
+
+Las credenciales reales no se escriben en el proyecto: la configuración MCP referencia variables de entorno. Codex usa configuración administrada a nivel usuario, Cursor un MCP global que resuelve el proyecto desde el workspace actual y Claude Code scope `user` cuando su CLI está disponible. Ver [diseño V1](docs/PRODUCT_V1.md) e [instalación V1](docs/INSTALLATION_V1.md). El flujo manual anterior (`install.py`, runner y herramientas de compatibilidad) sigue disponible.
 
 
 ## Ciclo de vida

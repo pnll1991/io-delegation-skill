@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Context Gateway V1 beta
+
+The public MCP surface is `search`, `extract`, `query`. TypeSafe Jev remains optional and receives task text plus aggregate metadata, not source contents or file names.
+
+The isolated semantic-worker benchmark did not support default auto-dispatch: it showed no material principal-token compression, roughly doubled principal+worker tokens, added material latency, and produced one clean paired quality regression. Worker auto-dispatch is therefore off by default and requires the explicit experimental `context_auto_dispatch: true` opt-in in an approved worker configuration. Historical benchmark targets remain frozen rather than being rewritten after observing the result.
+
 ## 0.2.0 — 2026-09-08
 
 Added a provider-neutral read-budget engine and optional project-local pre-tool hook integrations for Claude Code, Codex and Cursor. The normal skill installer remains opt-in-free; hook registration requires a separate explicit command.

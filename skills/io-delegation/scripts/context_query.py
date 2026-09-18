@@ -1,7 +1,8 @@
 """Smart context routing for the public `query` MCP tool.
 
 The router sees task text plus aggregate metadata, never source contents or names.
-Selected source fragments stay local unless an approved semantic worker is used.
+Selected source fragments stay local unless an approved semantic worker is explicitly
+opted into experimental auto-dispatch.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ ROUTER_OPERATIONS = {
     'unknown', 'exploration', 'factual', 'generation',
     'debugging', 'architecture', 'security', 'editing'
 }
+DEFAULT_WORKER_AUTO_DISPATCH = False
 
 
 def _external_config(path, root):
@@ -116,6 +118,11 @@ class QueryEngine:
         self.scope = scope
         self.semantic = (SemanticEngine(scope, audit, worker_config, cache=cache)
                          if worker_config is not None else None)
+        self.worker_auto_dispatch = bool(
+            self.semantic and self.semantic.cfg.get(
+                'context_auto_dispatch', DEFAULT_WORKER_AUTO_DISPATCH
+            ) is True
+        )
         self.router = JevRouter(scope.root, router_config) if router_config is not None else None
 
     def run(self, arguments):
@@ -149,10 +156,10 @@ class QueryEngine:
                 metrics['router_route'] = 'error'
 
         if route in (None, 'current_rules'):
-            route = _heuristic(operation, paths, source_bytes, self.semantic is not None)
+            route = _heuristic(operation, paths, source_bytes, self.worker_auto_dispatch)
         metrics['route'] = route
 
-        if route == 'bulk_read' and self.semantic:
+        if route == 'bulk_read' and self.semantic and self.worker_auto_dispatch:
             semantic_args = {'selections': selections}
             if 'question' in arguments:
                 semantic_args['question'] = arguments['question']
@@ -178,7 +185,8 @@ class QueryEngine:
             metrics['selected_bytes'] = bundle['selected_bytes']
             if route == 'bulk_read':
                 result = _evidence(bundle, 'targeted_read', recommended='bulk_read',
-                                   reason='semantic_worker_unavailable')
+                                   reason=('semantic_worker_opt_in_required'
+                                           if self.semantic else 'semantic_worker_unavailable'))
                 metrics['route'] = 'targeted_read'
             else:
                 result = _evidence(bundle, route)

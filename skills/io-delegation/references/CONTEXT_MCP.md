@@ -18,13 +18,15 @@ Large minified lines must use bounded search/spans, not whole-line output. Overs
 
 ## Smart `query` tool
 
-V1 exposes `query` as the primary semantic context interface. It accepts explicit selected fragments plus a question and operation hint. It always works: without external services it applies local routing rules and returns bounded evidence. With an approved TypeSafe router config, Jev receives task text plus aggregate file metadata only. With an approved semantic worker, a `bulk_read` route can dispatch selected fragments to that worker.
+V1 exposes `query` as the primary semantic context interface. It accepts explicit selected fragments plus a question and operation hint. It always works: without external services it applies local routing rules and returns bounded evidence. With an approved TypeSafe router config, Jev receives task text plus aggregate file metadata only. Semantic-worker auto-dispatch is experimental and off by default.
 
 A `principal` route returns bounded evidence for reasoning in the main agent. `targeted_read` returns the selected fragments without another model. Router errors and low-confidence decisions fall back to local rules. Semantic inference is internal to `query`; callers cannot bypass routing with a separate semantic MCP tool.
 
 ## Optional semantic worker
 
-An already reviewed `--config` outside the project enables the internal semantic worker used only when `query` selects `bulk_read`. `query` accepts explicit `selections` of `{path, select}`, plus `question` or up to four related `questions`. Selectors support lines/span, literal windows and Python symbols. Qualified Python methods retain the containing class; imports and module bindings are included. This is not whole-program dependency resolution. Other languages use explicit ranges/windows rather than a pretend AST parser.
+An already reviewed `--config` outside the project makes the internal semantic worker available but does not put it on the automatic V1 path. Experimental auto-dispatch additionally requires `"context_auto_dispatch": true` in that worker config and can run only when `query` selects `bulk_read`. Without that flag, `query` returns bounded selected evidence locally and preserves the worker route only as a recommendation.
+
+`query` accepts explicit `selections` of `{path, select}`, plus `question` or up to four related `questions`. Selectors support lines/span, literal windows and Python symbols. Qualified Python methods retain the containing class; imports and module bindings are included. This is not whole-program dependency resolution. Other languages use explicit ranges/windows rather than a pretend AST parser.
 
 The worker receives only selected fragments, with stable local references, scope and omissions. Evidence is checked against those fragments AND unchanged original files. It cannot quote unseen content merely because it exists elsewhere in a file. Missing selections abstain before model dispatch.
 

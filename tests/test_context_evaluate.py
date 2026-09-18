@@ -102,7 +102,9 @@ class EvaluationTests(unittest.TestCase):
 
     def test_full_simulated_abc_with_real_git_mcp_and_validators(self):
         stub = "import json,sys; j=json.load(sys.stdin); fs=json.loads(j['messages'][1]['content'])['files']; findings=[{'path':f['path'],'symbol':'config','evidence':f['content'].strip()[:120],'fact':'Selected configuration is present'} for f in fs]; a={'status':'ok','findings':findings,'unknowns':[],'read_paths':[f['path'] for f in fs]}; print(json.dumps({'output':json.dumps(a),'usage':{'input_tokens':25,'output_tokens':10}}))"
-        cfg=self.base/'approved.local.json';cfg.write_text(json.dumps(dict(approved=True,adapter='command',argv=[sys.executable,'-c',stub])))
+        cfg=self.base/'approved.local.json';cfg.write_text(json.dumps(dict(
+            approved=True,adapter='command',argv=[sys.executable,'-c',stub],
+            context_auto_dispatch=True)))
         self.manifest.update(arms=list(evaluate.ARMS),worker_config=str(cfg))
         rows=evaluate.run(self.manifest,self.base/'runs',True,self.synthetic_executor)
         self.assertEqual(len(rows),9);self.assertTrue(all(r['task_success'] for r in rows));self.assertTrue(all(r['system_accounting_complete'] for r in rows))

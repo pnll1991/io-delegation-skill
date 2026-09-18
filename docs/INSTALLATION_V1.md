@@ -79,11 +79,13 @@ La key literal nunca se escribe en el estado, config de host, telemetría ni mar
 
 ## Semantic worker
 
-No hay worker por defecto. Para habilitarlo, usar una configuración aprobada y guardada fuera del proyecto:
+No hay auto-dispatch de worker por defecto. Para dejar un worker aprobado disponible, usar una configuración guardada fuera del proyecto:
 
 ```bash
 io-delegation setup --project . --worker-config /ruta/privada/worker.json
 ```
+
+Eso **no** activa el despacho automático. El path experimental exige además `"context_auto_dispatch": true` dentro de la configuración revisada. `status` y `doctor` muestran por separado si el worker está configurado y si ese opt-in está activo.
 
 Para deshabilitar uno existente:
 

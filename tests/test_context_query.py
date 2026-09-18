@@ -79,7 +79,7 @@ class QueryTests(unittest.TestCase):
     def test_bulk_with_worker_dispatches_selected_context(self):
         worker=self.base/'worker.json'
         worker.write_text(json.dumps(dict(approved=True,adapter='command',
-            argv=[sys.executable,'-c','pass'],timeout_seconds=5)))
+            argv=[sys.executable,'-c','pass'],timeout_seconds=5,context_auto_dispatch=True)))
         service=self.service(worker);service.query.router.run=lambda *a,**k:routed('bulk_read')
         self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
         with patch('io_delegate.invoke',side_effect=worker_reply) as invoke:
@@ -89,6 +89,20 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['model_calls'],1)
         self.assertEqual(invoke.call_count,1)
         self.assertNotIn('SECRET_LOCAL',json.dumps(invoke.call_args.args[0]))
+
+    def test_worker_config_does_not_auto_dispatch_without_experimental_opt_in(self):
+        worker=self.base/'worker.json'
+        worker.write_text(json.dumps(dict(approved=True,adapter='command',
+            argv=[sys.executable,'-c','pass'],timeout_seconds=5)))
+        service=self.service(worker);service.query.router.run=lambda *a,**k:routed('bulk_read')
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        with patch('io_delegate.invoke',side_effect=worker_reply) as invoke:
+            result=self.call(service)
+        self.assertEqual(result['route'],'targeted_read')
+        self.assertEqual(result['recommended_route'],'bulk_read')
+        self.assertEqual(result['reason'],'semantic_worker_opt_in_required')
+        self.assertEqual(result['model_calls'],0)
+        self.assertEqual(invoke.call_count,0)
 
     def test_real_loopback_router_call_uses_metadata_and_routes_principal(self):
         captured=[]
@@ -119,7 +133,7 @@ class QueryTests(unittest.TestCase):
             (self.root/name).write_text(prefix + ('x' * 4497) + '\n')
         worker=self.base/'worker-large.json'
         worker.write_text(json.dumps(dict(approved=True,adapter='command',
-            argv=[sys.executable,'-c','pass'],timeout_seconds=5)))
+            argv=[sys.executable,'-c','pass'],timeout_seconds=5,context_auto_dispatch=True)))
         service=self.service(worker);service.query.router.run=lambda *a,**k:routed('bulk_read',.96)
         self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
         def reply(job,cfg,root,record):

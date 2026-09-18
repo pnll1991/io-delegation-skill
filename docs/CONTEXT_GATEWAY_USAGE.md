@@ -17,7 +17,7 @@ The coding agent receives three primary read-only tools:
 - `extract` — exact local HTML/JSON/range extraction
 - `query` — bounded semantic routing over explicit selections
 
-`query` always works. Without Jev or a worker it uses local rules and returns bounded evidence. With Jev, routing runs in the MCP host process. With an approved semantic worker, only a `bulk_read` route can dispatch selected fragments to that worker.
+`query` always works. Without Jev it uses local rules and returns bounded evidence. With Jev, routing runs in the MCP host process. A semantic worker is experimental: an approved config alone does not auto-dispatch it. Only a `bulk_read` route plus explicit `context_auto_dispatch: true` can send selected fragments to that worker.
 
 The TypeSafe API key remains in `TYPESAFE_API_KEY` (or the configured environment variable). Generated state and host configuration contain only variable names, never credential values.
 
