@@ -34,7 +34,7 @@ jobs:
         shell: powershell
     steps:
       - name: Checkout trusted main only
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           fetch-depth: 1
@@ -47,7 +47,7 @@ jobs:
 
       - name: Upload sanitized smoke report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: codex-live-smoke-${{ github.run_id }}
           path: ${{ runner.temp }}\codex-live-smoke.json
