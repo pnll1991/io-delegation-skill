@@ -1,0 +1,55 @@
+name: Codex live runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Live runner command
+        required: true
+        type: choice
+        options:
+          - smoke
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-live-runner
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.command == 'smoke') ||
+      (github.event_name == 'issue_comment' &&
+       github.actor == 'pnll1991' &&
+       github.event.issue.number == 31 &&
+       github.event.comment.body == '/codex-live-smoke')
+    runs-on: [self-hosted, windows, x64, codex-live]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Checkout trusted main only
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          clean: true
+
+      - name: Verify Codex runner
+        run: |
+          & .\scripts\codex_live_smoke.ps1 -OutputPath "$env:RUNNER_TEMP\codex-live-smoke.json"
+
+      - name: Upload sanitized smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-live-smoke-${{ github.run_id }}
+          path: ${{ runner.temp }}\codex-live-smoke.json
+          if-no-files-found: ignore
+          retention-days: 7
