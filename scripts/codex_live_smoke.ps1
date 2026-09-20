@@ -46,12 +46,21 @@ try {
 
     $report.codex_version = ((& $codex.Source --version 2>&1) | Out-String).Trim()
 
-    # Deliberately do not persist or echo the login-status body. Only its exit status
-    # is recorded so auth tokens/account details cannot enter logs or artifacts.
-    $null = (& $codex.Source login status 2>&1 | Out-String)
-    $report.codex_authenticated = ($LASTEXITCODE -eq 0)
+    # Deliberately do not persist or echo the login-status body. PowerShell 5 can
+    # surface native stderr as an ErrorRecord even when Codex exits 0, so temporarily
+    # avoid Stop semantics and trust the native process exit code only.
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $codex.Source login status *> $null
+        $codexLoginExit = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+    $report.codex_authenticated = ($codexLoginExit -eq 0)
     if (-not $report.codex_authenticated) {
-        throw "Codex CLI is present but not authenticated for the runner service account."
+        throw "Codex CLI is present but not authenticated for the runner account."
     }
 
     $report.ok = $true
