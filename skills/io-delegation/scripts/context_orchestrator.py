@@ -17,10 +17,12 @@ import model_policy
 TIERS = ('T0', 'T1', 'T2')
 SENSITIVE_OPERATIONS = {'debugging', 'architecture', 'security', 'editing', 'generation'}
 DEFAULT_POLICY = {
-    'cheap_sufficient_min': 0.78,
-    'risk_high_max': 0.30,
-    'uncertainty_high_max': 0.35,
-    'reasoning_required_max': 0.40,
+    'cheap_sufficient_min': 0.60,
+    'risk_high_max': 0.35,
+    # Kept as a validated config field for backward compatibility and telemetry.
+    # Missing-context uncertainty is not a model-strength gate.
+    'uncertainty_high_max': 0.95,
+    'reasoning_required_max': 0.35,
     'max_cheap_output_tokens': 900,
 }
 RANGES = {
@@ -139,7 +141,6 @@ def decide(scores, operation, worker_available, policy=None):
     gates = (
         scores['cheap_model_sufficient'] >= policy['cheap_sufficient_min'],
         scores['risk_high'] <= policy['risk_high_max'],
-        scores['uncertainty_high'] <= policy['uncertainty_high_max'],
         scores['reasoning_required'] <= policy['reasoning_required_max'],
     )
     if all(gates):
