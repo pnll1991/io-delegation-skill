@@ -250,7 +250,7 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(seen[0]['reasoning_effort'],'low')
         self.assertEqual(result['orchestration']['initial_profile'],'astra-low')
 
-    def test_balanced_blocks_large_cost_jump_after_luna_high_uncertainty(self):
+    def test_balanced_retries_luna_high_once_with_terra(self):
         worker=self.host_worker()
         service=self.service(worker,self.orchestrator,host='codex')
         service.query.router.run=lambda *a,**k:routed('bulk_read')
@@ -260,15 +260,19 @@ class QueryTests(unittest.TestCase):
         def reply(job,cfg,root,record):
             seen.append(cfg['model']+':'+cfg.get('reasoning_effort',''))
             raw,meta=worker_reply(job,cfg,root,record)
-            obj=json.loads(raw)
-            obj['unknowns']=['Need stronger synthesis']
-            return json.dumps(obj),meta
+            if len(seen)==1:
+                obj=json.loads(raw)
+                obj['unknowns']=['Need stronger synthesis']
+                raw=json.dumps(obj)
+            return raw,meta
         with patch('io_delegate.invoke',side_effect=reply):
             result=self.call(service)
-        self.assertEqual(seen,['gpt-5.6-luna:high'])
-        self.assertEqual(result['route'],'principal')
-        self.assertEqual(result['orchestration']['attempts'][0]['profile'],'luna-high')
-        self.assertFalse(result['orchestration']['escalated'])
+        self.assertEqual(seen,['gpt-5.6-luna:high','gpt-5.6-terra:medium'])
+        self.assertEqual(result['route'],'bulk_read')
+        self.assertEqual(result['orchestration']['final_profile'],'terra-medium')
+        self.assertEqual(result['orchestration']['model_escalations'],1)
+        self.assertEqual(len(result['orchestration']['attempts']),2)
+        self.assertTrue(result['orchestration']['escalated'])
 
     def test_transport_failure_does_not_walk_expensive_ladder(self):
         worker=self.host_worker()
