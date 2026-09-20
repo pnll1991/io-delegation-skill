@@ -21,10 +21,10 @@ if (-not (Test-Path -LiteralPath $keyPath)) {
 }
 
 $protected = [IO.File]::ReadAllBytes($keyPath)
-$privateBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+$privateBytes = [System.Security.Cryptography.ProtectedData]::Unprotect(
     $protected,
     $null,
-    [Security.Cryptography.DataProtectionScope]::CurrentUser
+    [System.Security.Cryptography.DataProtectionScope]::CurrentUser
 )
 $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider
 $plainBytes = $null
