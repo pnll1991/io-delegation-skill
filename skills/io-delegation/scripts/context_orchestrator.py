@@ -28,7 +28,7 @@ DEFAULT_POLICY = {
 RANGES = {
     'cheap_sufficient_min': (0.5, 1.0),
     'risk_high_max': (0.0, 0.5),
-    'uncertainty_high_max': (0.0, 0.5),
+    'uncertainty_high_max': (0.0, 1.0),
     'reasoning_required_max': (0.0, 0.5),
     'max_cheap_output_tokens': (64, 4096),
 }
