@@ -106,7 +106,8 @@ def configured_serve(root, state, host=None):
                              router_config=Path(router) if router else None,
                              orchestrator_config=Path(orchestrator) if orchestrator else None,
                              host=host,
-                             model_preset=state.get('model_policy_preset','balanced'))
+                             model_preset=state.get('model_policy_preset','balanced'),
+                             model_mode=state.get('model_policy_mode','suggest'))
     return serve(service)
 
 
