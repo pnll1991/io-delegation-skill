@@ -14,7 +14,7 @@ MODES = ("manual", "suggest", "auto")
 HOSTS = ("codex", "cursor", "claude-code")
 EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 DEFAULT_MODE = "suggest"
-DEFAULT_ESCALATION_COST_RATIO = {"cost": 1.5, "balanced": 4.0, "quality": 10.0}
+DEFAULT_ESCALATION_COST_RATIO = {"cost": 2.0, "balanced": 10.0, "quality": 25.0}
 
 # Defaults are policy weights, not benchmark percentages. Cursor ordering is informed
 # by CursorBench 4.0 (2026-09-10); Codex ordering follows current OpenAI model
