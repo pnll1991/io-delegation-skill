@@ -14,10 +14,10 @@ try {
     $privateXml = $rsa.ToXmlString($true)
     $privateBytes = [Text.Encoding]::UTF8.GetBytes($privateXml)
     try {
-        $protected = [Security.Cryptography.ProtectedData]::Protect(
+        $protected = [System.Security.Cryptography.ProtectedData]::Protect(
             $privateBytes,
             $null,
-            [Security.Cryptography.DataProtectionScope]::CurrentUser
+            [System.Security.Cryptography.DataProtectionScope]::CurrentUser
         )
         [IO.File]::WriteAllBytes($keyPath, $protected)
     }
