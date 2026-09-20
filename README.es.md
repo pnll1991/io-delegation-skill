@@ -2,263 +2,626 @@
 
 [English](README.md) | **Español**
 
-### Dale al agente el contexto correcto, no todo el repositorio
+### Dale a los agentes de código el contexto correcto, no todo el repositorio.
 
-[![Pruebas offline](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml/badge.svg)](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml)
+[![Offline tests](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml/badge.svg)](https://github.com/pnll1991/io-delegation-skill/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](docs/INSTALLATION_V1.md)
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation es un **context gateway** para agentes de código. Expone tres herramientas MCP principales: `search`, `extract` y `query`. El agente principal conserva depuración, arquitectura, seguridad y ediciones finales. El routing con TypeSafe Jev sigue siendo opcional; con un worker CLI aprobado, Jev puede puntuar requisitos de modelo para Codex y Cursor. El control queda primero en manos del usuario: `suggest` es el default, `manual` conserva el modelo elegido y el cambio dinámico requiere `auto` explícito. La compactación guiada por Jev queda automática por defecto.
+I/O Delegation es un context gateway local-first para agentes de código. Reduce la exposición innecesaria del repositorio buscando, extrayendo y enrutando evidencia acotada antes de que el modelo principal razone sobre ella.
 
-```text
-agente -> io_context -> search / extract / query
-                                     |
-                              reglas / Jev
-                              /    |     \
-                         dirigida principal worker
-```
+El producto está diseñado alrededor del control del usuario:
 
-Funciona sin un modelo externo. El routing y el scoring de compute con Jev reciben la tarea y metadatos agregados, no cuerpos de source ni nombres de archivos. En el modo `suggest` por defecto, la política local recomienda el perfil aprobado mínimo suficiente sin cambiar de modelo. `manual` conserva un modelo configurado explícitamente. Sólo `auto` puede seleccionar dinámicamente, con ceilings, guard de Astra y escalación acotada por costo; los fallos de transporte vuelven al principal. La compactación automática usa Jev cuando su API key está disponible; si no, queda la compactación nativa del host.
+- búsqueda y extracción determinística antes de llamar modelos;
+- debugging, seguridad, arquitectura, edición y generación quedan en el agente principal;
+- el routing con Jev es opcional;
+- cambiar de modelo automáticamente no es el default;
+- suggest / balanced es el modo de control por defecto;
+- manual conserva el modelo elegido explícitamente por el usuario;
+- auto es opt-in y es el único modo que puede cambiar perfiles de worker aprobados;
+- la compactación de contexto es automática por defecto, con fallback nativo del host;
+- el read guard es opcional y está apagado por defecto.
 
-## Instalación rápida
+El gateway funciona sin TypeSafe, sin worker y sin cambiar el modelo que ya elegiste.
 
-```bash
+## Estado actual
+
+| Área | Estado |
+| --- | --- |
+| Context gateway MCP | Implementado para Claude Code, Codex y Cursor |
+| Superficie pública MCP | search, extract, query |
+| Routing determinístico local | Default |
+| Selector de ruta TypeSafe Jev | Opcional, opt-in explícito |
+| Política host-aware de modelos | Codex + Cursor |
+| Control de modelo default | suggest / balanced |
+| Cambio dinámico de perfil | Solo auto |
+| Compactación automática | Activada por defecto |
+| Read guard | Opcional, apagado por defecto |
+| Validación live de Codex | Completada con Codex real autenticado |
+| Política Cursor | Implementada/testeada; todavía no calibrada live en una sesión Cursor real del usuario |
+| Claim de ahorro en producción | Ninguno: la evidencia actual es calibración/validación controlada, no una prueba de ahorro de billing |
+
+## Arquitectura
+
+~~~text
+agente de código
+    |
+    v
+ io_context MCP
+    |
+    +-- search  -> descubrimiento determinístico
+    +-- extract -> proyección exacta y acotada
+    +-- query   -> política local / Jev opcional
+                    |
+                    +-- evidencia focalizada
+                    +-- principal
+                    +-- worker aprobado
+                          |
+                          +-- manual  -> modelo fijo del usuario
+                          +-- suggest -> solo recomendación
+                          +-- auto    -> perfil dinámico acotado
+~~~
+
+I/O Delegation no intenta reemplazar al agente principal. Su trabajo es preparar la menor evidencia útil y evitar trabajo de modelo cuando un parser, búsqueda literal, compilador, test o lectura acotada puede resolver la pregunta directamente.
+
+## Soporte por host
+
+| Capacidad | Claude Code | Codex | Cursor |
+| --- | --- | --- | --- |
+| Gateway MCP global/user | Sí | Sí | Sí |
+| search / extract / query | Sí | Sí | Sí |
+| Read guard opcional | Sí | Sí | Sí |
+| Integración de compactación automática | Sí | Sí | Sí |
+| Política host-aware de modelos | Límite principal | Sí | Sí |
+| Workers CLI | Paths/adapters existentes | Sí | Sí |
+| Calibración live real autenticada | No se afirma | Sí | Todavía no |
+
+La orquestación host-aware de perfiles está enfocada deliberadamente en Codex y Cursor. Claude Code comparte el gateway, read-control y compactación.
+
+## Inicio rápido
+
+~~~bash
 git clone https://github.com/pnll1991/io-delegation-skill.git
 cd io-delegation-skill
+~~~
 
-# Windows
-io-delegation.cmd setup --project "D:\\ruta\\al\\proyecto"
+Windows:
 
-# macOS / Linux
+~~~powershell
+.\io-delegation.cmd setup --project "D:\ruta\al\proyecto"
+~~~
+
+macOS / Linux:
+
+~~~bash
 ./io-delegation setup --project "/ruta/al/proyecto"
-```
+~~~
 
-`setup` detecta agentes compatibles, instala la skill y un marcador estable del proyecto, instala un runtime local bajo `~/.io-delegation/`, registra un único MCP global `io_context` por host, detecta un scope seguro, mantiene el **routing Jev apagado por defecto**, prepara **scoring host-aware cuando hay un worker aprobado**, usa **suggest / balanced** como default de control de modelos, activa la **compactación automática por defecto**, mantiene el read guard **apagado por defecto** y ejecuta `doctor`.
+Preview sin escribir nada:
 
-```bash
+~~~bash
 io-delegation setup --project . --dry-run
+~~~
+
+Inspeccionar la instalación efectiva:
+
+~~~bash
 io-delegation status --project .
 io-delegation doctor --project .
-```
+~~~
 
-Los proyectos se pueden mover sin perder su identidad. Volvé a ejecutar `setup` después de moverlos o cambiar Python para refrescar metadatos y registro del host.
+Setup instala un runtime estable bajo ~/.io-delegation/, da al proyecto una identidad persistente, registra un MCP io_context a nivel de usuario/host y mantiene estado/configuración privada fuera del repositorio sobre el que estás trabajando.
 
-Opciones comunes:
+Los proyectos pueden moverse. Volvé a ejecutar setup después de mover un proyecto o cambiar el ejecutable de Python para refrescar metadata de máquina sin cambiar la identidad del proyecto.
 
-```bash
-io-delegation setup --project . --agent codex
-io-delegation setup --project . --agent all --jev on
-io-delegation setup --project . --worker-config /ruta/privada/worker.json
-io-delegation setup --project . --model-mode suggest --model-preset balanced
-io-delegation setup --project . --model-mode manual
-io-delegation setup --project . --model-mode auto --model-preset balanced  # cambio dinámico explícito
-io-delegation setup --project . --orchestration off  # escape hatch persistente
-io-delegation setup --project . --guard enforce
-io-delegation setup --project . --compaction off  # escape hatch persistente
-```
+## Comportamiento por defecto
 
-La mera presencia de `TYPESAFE_API_KEY` no habilita automáticamente el selector experimental de rutas Jev. Usá `--jev on` (o un `--router-config` revisado) cuando quieras ese router. La orquestación de compute es independiente: con un `--worker-config` aprobado, setup usa `--orchestration auto`; si falta la key de TypeSafe, cae a T2/principal sin despachar el worker.
+Una instalación normal arranca de forma conservadora:
 
-El camino anterior de auto-dispatch incondicional sigue requiriendo `"context_auto_dispatch": true`. El scoring host-aware es independiente: `manual` nunca cambia el modelo configurado, `suggest` sólo devuelve una recomendación y `auto` es el opt-in explícito que puede elegir un perfil aprobado. En `auto`, evidencia válida pero incompleta sólo puede reintentarse dentro de los límites de escalaciones y salto de costo configurados.
-
-Las credenciales reales no se escriben en el proyecto: la configuración MCP referencia variables de entorno. Codex usa configuración administrada a nivel usuario, Cursor un MCP global que resuelve el proyecto desde el workspace actual y Claude Code scope `user` cuando su CLI está disponible. Ver [diseño V1](docs/PRODUCT_V1.md) e [instalación V1](docs/INSTALLATION_V1.md). El flujo manual anterior (`install.py`, runner y herramientas de compatibilidad) sigue disponible.
-
-
-## Ciclo de vida
-
-```bash
-io-delegation remove --project . --dry-run
-io-delegation remove --project .
-io-delegation backups
-io-delegation restore ID --dry-run
-```
-
-La eliminación conserva settings ajenos y skills modificadas. Restore se detiene si el archivo cambió después, salvo `--force` revisado explícitamente.
-
-## Control opcional de lecturas
-
-La versión **0.2.0** incorpora la capa de control anterior a la herramienta. Un motor Python común revisa presupuestos de texto localmente; los adaptadores traducen su decisión al formato de hooks de cada agente.
-
-| Modo | Comportamiento |
+| Setting | Default |
 | --- | --- |
-| Solo instrucciones | Orientación portable, sin interceptar herramientas. |
-| Observación | Evalúa las lecturas y emite metadatos, pero no bloquea excesos de presupuesto. |
-| Bloqueo | Rechaza lecturas cubiertas que exceden el presupuesto y propone alternativas. |
+| Search/extract determinístico | On |
+| Routing local de query | On |
+| Selector de ruta experimental Jev | Off |
+| Control de modelo | suggest |
+| Preset | balanced |
+| Cambio dinámico de modelo | Off salvo que se seleccione auto |
+| Compactación automática | On |
+| Read guard | Off |
+| Auto-dispatch semántico legacy | Off |
+| Operaciones sensibles | Principal |
 
-El setup V1.1 deja esta integración **apagada por defecto**. `observe` y `enforce` son opt-in. Para el flujo manual anterior:
+Configuración típica:
 
-```bash
-# Elegí claude-code, codex o cursor
-python install_hooks.py --agent claude-code --project "RUTA_DEL_PROYECTO" --mode observe --dry-run
-python install_hooks.py --agent claude-code --project "RUTA_DEL_PROYECTO" --mode observe
-```
-
-Agregá `--python python3` si ese es el ejecutable disponible para tu agente. **Cada agente necesita su propio registro de hooks**, aunque Codex y Cursor compartan la carpeta de la skill. El instalador normal no activa hooks.
-
-| Agente | Configuración | Eventos y herramientas registrados |
-| --- | --- | --- |
-| Claude Code | `.claude/settings.json` | `PreToolUse`: `Read`, `read_file`, `Bash` |
-| Codex | `.codex/hooks.json` | `PreToolUse`: `Read`, `read_file`, `Bash` |
-| Cursor | `.cursor/hooks.json` | `preToolUse`: `Read`, `Shell` |
-
-El presupuesto inicial permite hasta **350 líneas de origen y 64.000 bytes** por lectura inspeccionada o lote de archivos reconocido en un comando. También detecta archivos minificados por tamaño, comprueba el rango solicitado y no considera suficiente agregar un offset sin límite. Reconoce comandos literales como `cat`, `head`, `tail`, `Get-Content` y rangos acotados de `sed`.
-
-Ante un bloqueo, propone buscar símbolos, leer un rango o usar un auxiliar ya aprobado cuando convenga. **No inicia modelos ni cambia proveedores por su cuenta.** Sin auxiliar, sigue disponible la lectura dirigida.
-
-El instalador conserva los hooks y permisos existentes, respalda la configuración que modifica, comprueba el ejecutor local y permite `--dry-run` y `--remove`. No reemplaza silenciosamente un ejecutor modificado. La política está en `.io-delegation-hooks/policy.json`; `mode: "observe"` registra decisiones sin bloquear excesos. El runtime de hooks usa rutas locales, mientras que la identidad del Context Gateway sobrevive al mover el proyecto. Volvé a ejecutar `setup` tras moverlo sólo para refrescar metadata o al cambiar Python. Siguen siendo necesarias la confianza y aprobación normales del agente.
-
-Para quitar solo el registro de esta integración, conservando los demás:
-
-```bash
-python install_hooks.py --agent claude-code --project "RUTA_DEL_PROYECTO" --remove
-```
-
-**La cobertura tiene límites.** No controla programas arbitrarios, herramientas no reconocidas o MCP, resultados de búsqueda, adjuntos del editor ni rutas que no disparan el hook registrado. El análisis de pipelines es conservador. No es un intérprete de shell completo, una sandbox ni un límite de tokens de toda la sesión; tampoco fuerza la generación de código. Instalar un hook no demuestra que el cliente lo haya ejecutado: el instalador informa `host_verified: false` hasta hacer una prueba real en ese agente.
-
-[Política, alcance y verificación en el agente](skills/io-delegation/references/ENFORCEMENT.md) · [Pruebas de hooks](tests/test_read_guard.py)
-
-## Probar sin configurar un modelo
-
-Estos ejemplos funcionan con archivos del propio repositorio y no llaman a servicios:
-
-```bash
-python skills/io-delegation/scripts/io_delegate.py inspect --root . --paths install.py
-python skills/io-delegation/scripts/io_delegate.py bulk-read --root . --paths install.py --question "¿En qué carpetas puede escribir el instalador?" --dry-run
-python -m unittest discover -s tests -v
-```
-
-`bulk-read` devuelve hechos acotados con evidencia literal y cobertura declarada. `code-write` guarda un archivo nuevo en `.io-delegation/candidates/`; nunca lo aplica ni ejecuta automáticamente. El transporte real se configura siguiendo [ADAPTERS.md](skills/io-delegation/references/ADAPTERS.md). No se activa ningún proveedor por defecto.
-
-La versión 0.2 agrega **51 pruebas** de presupuestos, rangos, comandos, controles negativos, entradas inválidas, protocolos en subprocesos, instalación, respaldo y eliminación del registro. Se conservan las pruebas anteriores del núcleo y del benchmark. GitHub Actions ejecuta la suite en Linux, Windows y macOS con Python 3.10 y 3.13; el badge muestra el estado real.
-
-Estas pruebas ejecutan nuestros scripts con eventos de anfitrión sintéticos. **No abren sesiones autenticadas de Claude Code, Codex o Cursor ni demuestran ahorro de tokens.** La [guía de prueba real](skills/io-delegation/references/ENFORCEMENT.md#test-a-real-host-before-claiming-enforcement) separa esa validación de la comprobación de protocolos.
-
-## Benchmark
-
-### Piloto histórico de la versión 0.1 · 7 de septiembre de 2026
-
-**Estos resultados son anteriores a los hooks de 0.2. No miden su eficacia ni sesiones autónomas.** No se atribuye un ahorro nuevo de extremo a extremo a la versión 0.2.
-
-**Se midieron menos tokens en lecturas grandes, pero no una mejora de extremo a extremo que aprobara el criterio de calidad.** Ejecutamos `Qwen/Qwen2.5-Coder-1.5B-Instruct` en CPU con archivos reales del repo: lectura completa, lectura focalizada sin skill y lectura focalizada con **toda la skill 0.1 cargada**. Es un ensayo controlado, no una sesión autónoma de Claude Code, Codex o Cursor.
-
-Tokens observados de **entrada + salida**, incluidas las respuestas rechazadas por el control de calidad:
-
-| Caso | Archivo completo | Focalizado, sin skill | Focalizado + skill 0.1 completa | Reducción frente al archivo completo |
-| --- | ---: | ---: | ---: | ---: |
-| Constantes del ejecutor | 6.902 | 240 | 2.132 | 69,11% |
-| Valores de configuración | 6.908 | 791 | 2.697 | 60,96% |
-| Instalador pequeño — control negativo | 770 | 653 | 2.545 | -230,52% |
-
-**Calidad:** el criterio definido antes de ejecutar exigía JSON sin envoltorios. Solo **1 de 9** respuestas principales pasó: la consulta de configuración focalizada sin skill. Ocho agregaron bloques Markdown, incluidas las tres respuestas con skill. Una revisión adicional **posterior al ensayo** encontró los valores correctos en las nueve al quitar esos bloques; eso **no convierte los fallos originales en aprobados**. No se midieron llamadas de corrección ni su costo.
-
-**Control de delegación:** el ejecutor real `bulk-read` consultó al mismo modelo, que devolvió `insufficient_context` sin hallazgos. El ensayo volvió a la lectura dirigida. Auxiliar + respuesta alternativa consumieron **9.356 tokens**, frente a **6.902** de la lectura completa: **35,55% más**. El contexto del principal bajó, pero el consumo total no. La respuesta alternativa también falló el formato estricto.
-
-**Conclusión:** leer solo lo necesario reduce mucho el contexto; cargar la skill para una tarea pequeña puede empeorar el consumo. Una lectura ya focalizada sin skill sigue siendo más económica. El ensayo no demuestra selección automática, cambios de código correctos, ahorro de facturación ni un porcentaje fijo para los agentes compatibles.
-
-[Metodología, fallos y reproducción](benchmarks/README.md) · [Resultados del modelo](benchmarks/results/2026-09-07-live.json) · [Ejecución terminada](https://github.com/pnll1991/io-delegation-skill/actions/runs/34154914478)
-
-### Conteo independiente de tokens
-
-Otro ensayo de cinco casos contó los mensajes serializados con `tiktoken` 0.11.0. Los tres casos grandes redujeron **64,03–72,00%** los tokens `o200k_base`, incluyendo la skill 0.1 completa. Los controles pequeños y ya focalizados aumentaron el consumo. Son conteos BPE de esa serialización, **no** los tokens de inferencia Qwen de la tabla anterior ni una factura o el tokenizador de Claude.
-
-[Datos de ambos tokenizadores y controles negativos](benchmarks/results/2026-09-07-census.json) · [Ejecución del conteo](https://github.com/pnll1991/io-delegation-skill/actions/runs/34155367336)
-
-```bash
-# Solo conteo: sin descargar un modelo ni ejecutar inferencia
-python -m pip install tiktoken==0.11.0
-python benchmarks/run.py --output benchmark-output
-```
-
-Ejecutar en main actual cuenta la skill actual. Para reproducir las cifras históricas, usá el `executed_commit` del informe, como explica la guía. El piloto de modelos se ejecuta manualmente; el conteo liviano corre ante cambios relevantes. Sus dependencias no son necesarias para instalar ni usar la skill.
-
-
-## Orquestación host-aware de modelos con Jev
-
-Con un worker CLI aprobado, Jev puntúa los requisitos de la tarea y una **política local y editable** elige el modelo. El preset por defecto es `balanced`; el usuario puede usar `cost` o `quality` sin editar JSON.
-
-```text
-candidato factual/bulk
-        ↓
-scores de Jev
-        ↓
-política local
-   ┌────┴──────────────────────────────┐
-Codex                                 Cursor
-Luna medium                           Luna medium
-Luna high                             Luna high
-Terra medium                          Sol medium
-Sol medium                            Sol high
-Astra low  ← techo default
-```
-
-El selector no empieza ciegamente por el modelo más barato. Calcula demanda normalizada, conserva sólo perfiles suficientes y debajo del ceiling del usuario, y minimiza un objetivo costo/capacidad según el preset. Una tarea difícil puede arrancar directamente en Sol o Astra. Una respuesta válida pero incompleta puede subir al próximo perfil aprobado; timeout, error de transporte o usage desconocido vuelven directamente al principal.
-
-Los defaults cambian por host. Codex usa posicionamiento/precios actuales de OpenAI y tiene **Astra low** como techo. Cursor usa datos de eficiencia de CursorBench 4.0; el ladder balanced omite Terra porque Luna-high mostró mejor score a mucho menor costo reportado por tarea. Astra no forma parte del registry default de Cursor porque la documentación/benchmark actual usada por esta política no lo lista.
-
-```bash
-io-delegation setup --project . \
-  --worker-config /ruta/privada/worker.host-cli.json \
-  --model-preset balanced
-
-io-delegation setup --project . --model-preset cost
-io-delegation setup --project . --model-preset quality
-```
-
-El usuario avanzado puede reemplazar registry/orden, cambiar ceilings, bloquear perfiles, limitar escalaciones y optar explícitamente por el Router nativo de Cursor con un model string revisado. Usá `skills/io-delegation/assets/worker.host-cli.example.json` como base. Jev nunca inventa IDs de modelos.
-
-La telemetría registra host, demanda, perfil/modelo/effort, intentos, escalaciones y usage reportado de worker/Jev. Usage desconocido sigue siendo desconocido. Ver [orquestación host-aware](skills/io-delegation/references/ORCHESTRATION.md).
-
-## Compactación automática de contexto guiada por Jev
-
-Claude Code, Codex y Cursor usan la misma política de compactación por proyecto.
-`setup` instala y activa automáticamente los adapters de compactación para los hosts
-instalados; no hace falta ejecutar un comando manual para compactar. Claude puede
-dispararla proactivamente al umbral configurado de contexto (60% por defecto), mientras
-Codex y Cursor se enganchan al lifecycle automático de compactación nativa del host.
-
-```bash
-# La compactación automática es el default
+~~~bash
 io-delegation setup --project . --agent all
+io-delegation setup --project . --model-mode suggest --model-preset balanced
+~~~
+
+Alternativas explícitas:
+
+~~~bash
+# Nunca cambiar un modelo configurado explícitamente
+io-delegation setup --project . --model-mode manual
+
+# Permitir selección dinámica entre perfiles aprobados
+io-delegation setup --project . --model-mode auto --model-preset balanced
+
+# Selector experimental de rutas con Jev
+io-delegation setup --project . --jev on
+
+# Escape hatch persistente de orquestación
+io-delegation setup --project . --orchestration off
+
+# Read guard opcional
+io-delegation setup --project . --guard observe
+io-delegation setup --project . --guard enforce
+
+# Deshabilitar/restaurar compactación automática
+io-delegation setup --project . --compaction off
+io-delegation setup --project . --compaction on
+~~~
+
+La mera presencia de TYPESAFE_API_KEY no activa silenciosamente el selector experimental de rutas con Jev.
+
+## Superficie MCP
+
+La interfaz pública es intencionalmente pequeña.
+
+### search
+
+Descubrimiento determinístico dentro del scope aprobado del proyecto. Sirve para búsqueda literal, paths y excerpts acotados.
+
+### extract
+
+Proyecciones exactas sin inferencia. Soporta:
+
+- metadata HTML como title, h1, canonical y description;
+- JSON pointers RFC 6901;
+- rangos de líneas one-based;
+- spans de caracteres normalizados.
+
+Los resultados demasiado grandes se rechazan: no se truncan silenciosamente y luego se tratan como completos.
+
+### query
+
+Es la interfaz semántica de contexto. Recibe fragmentos seleccionados explícitamente más una pregunta/hint de operación y decide entre:
+
+- evidencia focalizada;
+- razonamiento principal;
+- worker semántico aprobado.
+
+query funciona sin servicios externos. Jev y ejecución de workers son capas opcionales arriba del gateway local.
+
+Ver [referencia Context MCP](skills/io-delegation/references/CONTEXT_MCP.md).
+
+## Control de modelos: manual, suggest, auto
+
+Con un worker CLI aprobado de Codex/Cursor, Jev puede puntuar requisitos de la tarea mientras la decisión de modelo sigue siendo local y editable por el usuario.
+
+### manual
+
+Nunca cambia el modelo seleccionado por el usuario.
+
+Con una configuración explícita codex-cli/cursor-cli conserva exactamente ese modelo. Un host-cli genérico sin modelo fijo vuelve al principal en vez de inventar una selección.
+
+### suggest — default
+
+Calcula un perfil recomendado, pero no cambia dinámicamente de modelo.
+
+Es el default porque mantiene visible el control del modelo mientras la política puede mostrar una recomendación de perfil mínimo suficiente.
+
+### auto — opt-in explícito
+
+Puede elegir y reintentar perfiles aprobados bajo ceilings locales y guards de escalación.
+
+El benchmark live usa auto porque justamente valida el routing dinámico. Eso no cambia el default del producto.
+
+## Política de modelos calibrada
+
+Jev devuelve cinco scores:
+
+- cheap_model_sufficient
+- risk_high
+- uncertainty_high
+- reasoning_required
+- parallelism_useful
+
+La fuerza del modelo usa suficiencia de modelo barato, reasoning y risk.
+
+Dos correcciones importantes que salieron de la calibración live:
+
+- uncertainty_high diagnostica contexto faltante/incompleto; por sí solo no compra un modelo más fuerte;
+- parallelism_useful describe descomposición, no inteligencia, por lo que tampoco incrementa fuerza de modelo.
+
+Cuando la incertidumbre indica un problema de contexto, la política vuelve al principal en vez de intentar resolver evidencia faltante con un modelo más caro.
+
+Operaciones sensibles — debugging, arquitectura, seguridad, edición y generación — quedan en el principal.
+
+### Ladders default de Codex
+
+| Preset | Orden |
+| --- | --- |
+| cost | Luna medium → Luna high → Terra medium → Sol medium → Astra low |
+| balanced | Luna high → Terra medium → Sol medium → Astra low |
+| quality | Luna high → Terra medium → Sol medium → Astra low |
+
+Balanced empieza deliberadamente en Luna high. Luna medium sigue disponible en cost y políticas custom.
+
+### Ladders default de Cursor
+
+| Preset | Orden |
+| --- | --- |
+| cost | Luna medium → Luna high → Sol medium |
+| balanced | Luna medium → Luna high → Sol medium → Sol high |
+| quality | Luna high → Sol medium → Sol high |
+
+El registry de Cursor está informado por metadata de CursorBench 4.0 y sigue siendo editable. Estos defaults no se presentan como validación empírica live derivada de los tests de Codex.
+
+### Guards de escalación y Astra
+
+Defaults:
+
+- máximo de escalaciones model-profile: 1;
+- preset cost: ratio máximo de salto 2x;
+- balanced: 10x;
+- quality: 25x;
+- fallos de transporte/configuración/budget no recorren el ladder;
+- volver al principal no cuenta como model escalation.
+
+Balanced usa 10x porque el caso hard-factual live necesitó el recovery útil Luna-high → Terra-medium; el guard anterior de 4x bloqueaba incorrectamente esa recuperación.
+
+Astra es un tier excepcional, no un fallback normal por incertidumbre. La política Codex default requiere:
+
+- demand >= 0.90;
+- reasoning_required >= 0.85;
+- y además risk_high >= 0.55 o cheap_model_sufficient <= 0.12.
+
+El selector toma el primer perfil aprobado cuya capacidad declarada cubre la demanda. Ya no usa el objetivo viejo cost/capability que podía favorecer dos veces a modelos caros.
+
+Ver [ORCHESTRATION.md](skills/io-delegation/references/ORCHESTRATION.md).
+
+## Compactación automática guiada por Jev
+
+La compactación es un subsistema separado del selector opcional de rutas Jev.
+
+~~~bash
+# Default
+io-delegation setup --project . --compaction on
 
 # Escape hatch persistente por proyecto
 io-delegation setup --project . --compaction off
-
-# Volver al modo automático
-io-delegation setup --project . --compaction on
-```
-
-Una preferencia explícita `--compaction off` persiste en los próximos `setup`. Los estados
-legacy que nunca guardaron una preferencia de compactación migran automáticamente a ON
-en su próximo setup/update.
-
-El modelo de decisión es común; cambia el adapter según el lifecycle real de
-cada cliente:
+~~~
 
 | Host | Integración |
 | --- | --- |
-| Claude Code | Reemplaza `session.compact` de forma nativa usando el core vendorizado de `fast-jev-compaction`. El texto usuario/asistente queda literal y Jev poda o trunca evidencia vieja de tools. |
-| Codex | Hooks de comando registran prompts y tool I/O localmente. `PreCompact` ejecuta Jev, luego ocurre la compactación nativa y `SessionStart(source=compact)` reinyecta la evidencia literal retenida antes del próximo request al modelo. |
-| Cursor | Hooks de comando registran prompts y tool I/O localmente. `preCompact` ejecuta Jev; como ese hook es observacional, la evidencia se reinyecta en el primer `postToolUse` posterior o mediante un único `stop` follow-up acotado si no hubo otra tool call. |
+| Claude Code | Reemplazo de session.compact usando el core vendorizado fast-jev-compaction; texto user/assistant queda verbatim y evidencia vieja de tools puede podarse/truncarse |
+| Codex | Journaling local de prompts/tool I/O; PreCompact ejecuta la decisión y la evidencia retenida se reinyecta después de la compactación nativa |
+| Cursor | Usa preCompact más el primer postToolUse/un follow-up stop acotado para reinyectar evidencia, porque el hook de compactación de Cursor es observacional |
 
-Esto está separado deliberadamente de `--jev on`. El router normal envía tarea
-y metadatos agregados; la compactación tiene una frontera de datos más amplia y
-envía texto de conversación e inputs de tools a TypeSafe. **Los cuerpos completos
-de resultados de tools no se envían a Jev** en el bridge de Codex/Cursor: Jev
-recibe sólo tamaño/estado del resultado; el contenido exacto queda local y se
-reinyecta únicamente si Jev decide conservarlo.
+Si Jev o la API key no están disponibles, la compactación cae al mecanismo nativo del host en vez de bloquear la sesión.
 
-La política ignorada `.io-delegation/compaction.json` registra los hosts configurados y
-el scope de datos. La API key permanece en `TYPESAFE_API_KEY` (o la variable
-indicada por `--typesafe-env`). Fuera de proyectos configurados los adapters quedan
-inactivos; `--compaction off` los desactiva para ese proyecto. Si falta la key o ante
-cualquier fallo de Jev/adapter se usa la compactación nativa del host.
+En el bridge de Codex/Cursor, los bodies completos de tool results quedan locales. Jev recibe metadata de tamaño/error y la evidencia exacta retenida se reinyecta localmente cuando corresponde.
 
-## Qué incluye
+## Read guard opcional
 
-La carpeta instalable contiene la skill, el ejecutor de auxiliares, el motor de control, ejemplos y referencias de flujo, adaptadores, validación y fuentes. El repositorio agrega instaladores separados para skill y hooks, pruebas, CI, documentación, licencia MIT y guías de contribución.
+El read guard no es un sandbox de seguridad y está apagado por defecto.
 
-Inspirada en Spotify Engineering y `shunt`, con contratos y controles propios. [Procedencia y diferencias](skills/io-delegation/references/SOURCES.md). No hay afiliación con Spotify ni se redistribuye su artículo.
+| Modo | Comportamiento |
+| --- | --- |
+| off / solo instrucciones | Sin interceptar |
+| observe | Evalúa lecturas cubiertas y registra metadata sin bloquear violaciones de budget |
+| enforce | Deniega lecturas cubiertas que superan el presupuesto y propone alternativas acotadas |
 
-No promete un porcentaje fijo de ahorro: hay que medir principal, auxiliar, latencia y retrabajo. Leer [VALIDATION.md](skills/io-delegation/references/VALIDATION.md) y [SECURITY.md](SECURITY.md). El ejecutor y el control de lecturas no son sandboxes.
+Budget default:
 
-[MIT](LICENSE) · Versión 1.0.0-beta · [Contribuir](CONTRIBUTING.md)
+- 350 líneas de source;
+- 64.000 bytes por lectura/lote de shell reconocido.
+
+Integraciones cubiertas:
+
+| Host | Hook |
+| --- | --- |
+| Claude Code | PreToolUse: Read, read_file, Bash |
+| Codex | PreToolUse: Read, read_file, Bash |
+| Cursor | preToolUse: Read, Shell |
+
+Reconoce un conjunto acotado de lectores literales como cat, head, tail, Get-Content y rangos sed. No interpreta programas shell arbitrarios ni impone un límite de tokens de sesión completa.
+
+Ver [ENFORCEMENT.md](skills/io-delegation/references/ENFORCEMENT.md).
+
+## Filosofía de routing
+
+| Situación | Camino preferido |
+| --- | --- |
+| Search/parser/test/compiler responde | Tool determinístico |
+| Función conocida o región pequeña | Lectura focalizada |
+| Lookup factual grande sobre texto seleccionado | query / bulk factual path |
+| Archivo nuevo repetitivo con contrato claro | Candidato code-write revisable |
+| Debugging, arquitectura, seguridad, pagos, lógica crítica | Principal con evidencia directa |
+| Editar código existente | Releer source actual y editar con precisión |
+| Contexto faltante | Buscar evidencia o volver al principal; no subir modelo por defecto |
+
+El runner legacy bulk-read/code-write sigue disponible para compatibilidad y uso explícito de worker. code-write produce un candidato bajo .io-delegation/candidates/; no sobreescribe silenciosamente archivos vivos del proyecto.
+
+## Límites de datos y seguridad
+
+I/O Delegation separa tres paths relacionados con Jev porque tienen límites de datos diferentes.
+
+| Feature | Datos enviados a TypeSafe/Jev | Límite importante |
+| --- | --- | --- |
+| Selección de ruta | Texto de tarea + metadata agregada | Sin source bodies ni file names |
+| Scoring de requisitos de modelo | Texto de tarea + metadata agregada | Model IDs/providers se eligen localmente |
+| Compactación | Contexto más amplio de conversación/tool input | En Codex/Cursor los tool-result bodies quedan locales; puede enviarse metadata de tamaño/error |
+
+Otras propiedades:
+
+- credenciales en variables de entorno;
+- setup guarda nombres de variables, no valores plaintext;
+- configs privadas de worker van fuera del proyecto;
+- runtime, estado y auditoría viven bajo ~/.io-delegation/;
+- las configuraciones de host se backupean antes de cambios administrados;
+- restore no pisa cambios posteriores del usuario salvo --force explícitamente revisado;
+- la validación live de Codex en self-hosted runner es owner-only y hace checkout de main confiable;
+- el test TypeSafe live usa handoff cifrado y no persiste intencionalmente la key plaintext.
+
+El gateway no es un sandbox, DLP ni bypass de permisos. Los sandboxes, approvals y trust boundaries del host siguen aplicando.
+
+## Benchmarks y evidencia
+
+No existe un único claim de "X% de ahorro". El repo conserva resultados favorables y negativos porque cada experimento mide una capa distinta.
+
+### Resumen de evidencia
+
+| Evidencia | Muestra | Observación principal | Decisión de producto |
+| --- | ---: | --- | --- |
+| Census independiente 0.1 | 5 casos | Los casos grandes con skill cold usaron 64,03–72,00% menos tokens o200k que whole-file; controles small/already-focused empeoraron fuerte | Usar contexto focalizado; bypass para tareas pequeñas/ya focalizadas |
+| Piloto local Qwen 0.1 | 9 respuestas + control forced-worker | Bajó consumo en casos grandes, pero el quality gate estricto pasó solo 1/9; forced worker consumió 35,55% más tokens totales que whole-file | No afirmar ahorro quality-passing; determinístico/focalizado primero |
+| Activation A/B 2026-09-17 | 15 pares | Mejora histórica aparente | Invalidado por herencia de config Codex del usuario; no usar como evidencia actual |
+| Jev A/B 2026-09-18 | 20 pares / 40 runs | Ambos arms 11/20; Jev se llamó en 9 pares; sin regresiones causales de calidad en el subset llamado | Selector de ruta Jev sigue opt-in |
+| Validación semantic worker | 25 pares | ~97% overhead mediano de tokens principal+worker, ~16,3s de overhead mediano, 2/25 workers aceptados | Auto-dispatch semántico incondicional sigue off |
+| Calibración live de modelos Codex 2026-09-20 | 3 casos + probes directos | Easy/medium quedaron en Luna-high; hard factual recuperó con un único Luna-high → Terra-medium; ningún caso de calibración necesitó Astra | suggest sigue default; auto queda acotado por política calibrada |
+
+### Census de tokens 0.1
+
+Con tiktoken 0.11.0 sobre message JSON serializado:
+
+| Caso | o200k whole | o200k focused | o200k cold skill | Reducción cold vs whole |
+| --- | ---: | ---: | ---: | ---: |
+| Constants | 6.854 | 203 | 1.919 | 72,00% |
+| Defaults | 6.862 | 752 | 2.468 | 64,03% |
+| Candidate fields | 6.861 | 576 | 2.292 | 66,59% |
+| Small installer | 772 | 638 | 2.354 | -204,92% |
+| Already focused | 203 | 203 | 1.919 | -845,32% |
+
+Son conteos BPE de una serialización controlada, no billing del proveedor ni mediciones de calidad.
+
+Evidencia: [2026-09-07-census.json](benchmarks/results/2026-09-07-census.json).
+
+### Piloto local 0.1
+
+El replay controlado con Qwen/Qwen2.5-Coder-1.5B-Instruct midió menor consumo de tokens en lookups grandes, pero el quality gate predeclarado de JSON puro pasó solo 1 de 9 respuestas principales.
+
+El control forced-worker consumió:
+
+- 7.224 tokens del worker;
+- 2.132 tokens del fallback/main;
+- 9.356 tokens combinados;
+- contra 6.902 del baseline whole-file;
+- 35,55% más consumo total.
+
+Ese resultado negativo es una de las razones por las que I/O Delegation no trata una llamada a worker como automáticamente más barata.
+
+Evidencia: [2026-09-07-live.json](benchmarks/results/2026-09-07-live.json) y [metodología](benchmarks/README.md).
+
+### Jev A/B — 2026-09-18
+
+Muestra aislada completa:
+
+- 40 runs;
+- 20 tareas pareadas;
+- gateway-local: 11/20 successes;
+- gateway-jev: 11/20 successes;
+- Jev realmente se llamó en 9/20 pares;
+- cinco pares válidos donde Jev fue llamado tuvieron mediana de delta de tokens principal de -23,29% y mediana de wall-time de -27,61%;
+- esos cinco pares eran todos de la familia targeted;
+- una mejora causal de calidad;
+- cero regresiones causales de calidad en pares donde Jev realmente fue llamado;
+- siete effective-route mismatches en el arm Jev total;
+- la familia multi-file nunca llegó a Jev.
+
+El subset llamado es prometedor pero demasiado angosto para justificar activación automática. Por eso el route selector sigue siendo opt-in explícito.
+
+Evidencia: [jev-ab-20260918.json](benchmarks/v1-validation/evidence/jev-ab-20260918.json).
+
+### Resultado de activation invalidado
+
+El artifact del 2026-09-17 se conserva intencionalmente, pero está marcado invalidated: el runner heredó configuración Codex del usuario y no fijó el fallback de sandbox Windows soportado. Sus porcentajes headline no deben usarse como evidencia actual.
+
+Evidencia: [activation-20260917.json](benchmarks/v1-validation/evidence/activation-20260917.json).
+
+### Calibración live de política Codex — 2026-09-20
+
+Es una validación real usando Codex CLI autenticado en el self-hosted Windows runner del usuario con TypeSafe/Jev disponible. El corpus es sintético y sanitizado; no contiene source privado.
+
+Fixture de calibración commiteado:
+
+[model-policy-live-calibration-20260920.json](benchmarks/v1-validation/evidence/model-policy-live-calibration-20260920.json)
+
+Último rerun seguro post-merge:
+
+[GitHub Actions run 35515936634](https://github.com/pnll1991/io-delegation-skill/actions/runs/35515936634) sobre commit 7a911d8df89e857777b236d0749d1bb533d096c2.
+
+Routing observado:
+
+| Caso | Jev raw tokens | Inicial | Final | Model calls | Escalaciones | Worker raw tokens | Wall time |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: |
+| easy | 861 | Luna high | Luna high | 1 | 0 | 12.095 | 28,0s |
+| medium | 876 | Luna high | Luna high | 1 | 0 | 12.270 | 21,9s |
+| hard factual | 895 | Luna high | Terra medium | 2 | 1 | 26.997 | 72,0s |
+
+Política efectiva del benchmark:
+
+- mode: auto;
+- preset: balanced;
+- order: Luna high → Terra medium → Sol medium → Astra low;
+- max model escalations: 1;
+- max escalation cost ratio: 10x.
+
+El caso hard-factual es la calibración clave: Luna high falló el validator local de evidencia, un retry a Terra medium pasó y el ladder se detuvo ahí.
+
+Los probes directos one-shot siguen mostrando ruido. En el último rerun Luna high, Terra medium y Astra low pasaron; Sol medium falló el literal-evidence validator. Runs anteriores dieron combinaciones diferentes. Por eso la política se calibra sobre invariantes y recovery acotado, no sobre la idea de que un modelo específico siempre pasa.
+
+Esta evidencia live de Codex no demuestra ahorro en producción y no valida empíricamente Cursor.
+
+## Tests y validación
+
+Suite offline:
+
+~~~bash
+python -m unittest discover -s tests -v
+~~~
+
+CI corre en:
+
+- Ubuntu;
+- Windows;
+- macOS;
+- Python 3.10;
+- Python 3.13;
+- tests/typechecks de compactación;
+- checks de token census.
+
+La calibración de model policy también está congelada en regression tests para que los patrones históricos de scores Jev sigan:
+
+- arrancando Codex balanced en Luna high;
+- evitando Astra en casos ordinarios de calibración;
+- permitiendo un solo recovery Luna-high → Terra-medium;
+- evitando recorrer todo el ladder.
+
+Los tests automáticos no reemplazan validación real autenticada. El repo separa explícitamente unit/protocol coverage de evidencia live por host.
+
+## Configuración de workers
+
+Las configuraciones reales y credenciales deben quedar fuera del proyecto.
+
+Punto de partida:
+
+skills/io-delegation/assets/worker.host-cli.example.json
+
+Instalar explícitamente:
+
+~~~bash
+io-delegation setup --project . --worker-config /ruta/privada/worker.host-cli.json
+~~~
+
+Desactivar worker:
+
+~~~bash
+io-delegation setup --project . --no-worker
+~~~
+
+Usuarios avanzados pueden reemplazar registries/orden, bloquear perfiles, bajar ceilings, cambiar límites de escalación y — solo en Cursor — configurar explícitamente un native-router-first con model string revisado. I/O Delegation nunca inventa model IDs.
+
+## Lifecycle
+
+Eliminar solo integración administrada:
+
+~~~bash
+io-delegation remove --project . --dry-run
+io-delegation remove --project .
+~~~
+
+Ver backups:
+
+~~~bash
+io-delegation backups
+~~~
+
+Restore seguro:
+
+~~~bash
+io-delegation restore BACKUP_ID --dry-run
+io-delegation restore BACKUP_ID
+~~~
+
+Restore se niega a pisar configuración de host modificada después de I/O Delegation salvo que --force sea revisado explícitamente.
+
+## Mapa del repositorio
+
+~~~text
+io_gateway.py
+  setup / status / doctor / remove / backups / restore
+
+skills/io-delegation/
+  SKILL.md
+  scripts/
+    context_mcp.py
+    context_bootstrap.py
+    context_query.py
+    context_orchestrator.py
+    model_policy.py
+    context_telemetry.py
+    read_guard.py
+    io_delegate.py
+  references/
+    CONTEXT_MCP.md
+    ORCHESTRATION.md
+    ENFORCEMENT.md
+    ADAPTERS.md
+    WORKERS.md
+    VALIDATION.md
+  assets/
+    worker.host-cli.example.json
+
+scripts/
+  codex_live_smoke.ps1
+  codex_live_keygen.ps1
+  codex_live_ab.py
+  codex_live_ab_with_key.ps1
+  codex_live_ab_from_comment.ps1
+
+benchmarks/
+  README.md
+  results/
+  v1-validation/evidence/
+
+tests/
+docs/
+.github/workflows/
+~~~
+
+## Límites actuales
+
+I/O Delegation sigue siendo software beta guiado por evidencia.
+
+No se debe inferir más de lo que prueban los experimentos:
+
+- no hay claim fijo de porcentaje de ahorro de tokens;
+- no hay claim de ahorro de billing del proveedor;
+- no se afirma que delegar automáticamente a workers sea siempre más barato;
+- no se afirma que Cursor esté calibrado live a partir de evidencia Codex;
+- el read guard no es un sandbox de seguridad;
+- instalar un hook no prueba que un cliente realmente lo haya ejecutado;
+- TypeSafe/Jev no es obligatorio para que el gateway sea útil.
+
+La validación de mayor valor que falta incluye una muestra pareada real más grande con accounting completo principal + worker + Jev y paridad de lifecycle autenticada en Cursor/Claude.
+
+## Documentación
+
+- [Diseño de producto](docs/PRODUCT_V1.md)
+- [Instalación](docs/INSTALLATION_V1.md)
+- [Context Gateway / MCP](skills/io-delegation/references/CONTEXT_MCP.md)
+- [Orquestación host-aware](skills/io-delegation/references/ORCHESTRATION.md)
+- [Workers](skills/io-delegation/references/WORKERS.md)
+- [Adapters](skills/io-delegation/references/ADAPTERS.md)
+- [Read enforcement](skills/io-delegation/references/ENFORCEMENT.md)
+- [Validación](skills/io-delegation/references/VALIDATION.md)
+- [Metodología de benchmark](benchmarks/README.md)
+- [Changelog](CHANGELOG.md)
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE).
