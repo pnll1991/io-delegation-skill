@@ -20,7 +20,7 @@ class ModelPolicyTests(unittest.TestCase):
     def test_default_codex_ceiling_is_astra_low(self):
         row=policy.resolve({'adapter':'host-cli'},'codex')
         self.assertEqual(row['max_profile'],'astra-low')
-        self.assertEqual(row['order'][-1],'astra-low')
+        self.assertEqual(row['order'],['luna-high','terra-medium','sol-medium','astra-low'])
         astra=row['table']['astra-low']
         self.assertEqual(astra['model'],'gpt-6-astra')
         self.assertEqual(astra['effort'],'low')
@@ -40,7 +40,7 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual(row['profile']['id'],'luna-medium')
         self.assertEqual(row['model_tier'],'M1')
 
-    def test_balanced_low_demand_prefers_luna_high_quality_margin(self):
+    def test_balanced_low_demand_starts_at_luna_high(self):
         row=policy.choose({'adapter':'host-cli'},'codex',scores(),operation='factual')
         self.assertEqual(row['profile']['id'],'luna-high')
         self.assertEqual(row['model_tier'],'M2')
@@ -175,11 +175,48 @@ class ModelPolicyTests(unittest.TestCase):
         derived,_=policy.apply_profile(cfg,'cursor',cursor)
         self.assertEqual(derived['executable'],'/approved/agent')
 
-    def test_next_profile_respects_effective_order(self):
+    def test_next_profile_blocks_large_balanced_cost_jump(self):
         cfg={'adapter':'host-cli'}
+        self.assertIsNone(policy.next_profile(cfg,'cursor','luna-high'))
+
+    def test_user_can_raise_escalation_cost_ratio(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto','hosts':{'cursor':{
+            'max_escalation_cost_ratio':10.0,
+        }}}}
         nxt=policy.next_profile(cfg,'cursor','luna-high')
         self.assertEqual(nxt['profile']['id'],'sol-medium')
         self.assertEqual(nxt['model_tier'],'M3')
+
+    def test_default_mode_is_suggest_and_can_be_overridden(self):
+        self.assertEqual(policy.resolve({'adapter':'host-cli'},'codex')['mode'],'suggest')
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        self.assertEqual(policy.resolve(cfg,'codex')['mode'],'auto')
+        self.assertEqual(policy.resolve(cfg,'codex',mode_override='manual')['mode'],'manual')
+
+    def test_uncertainty_and_parallelism_do_not_raise_model_strength(self):
+        low=policy.task_demand(scores(cheap=.72,reasoning=.12,risk=.10,
+                                      uncertainty=.05,parallel=.05),'balanced')
+        noisy=policy.task_demand(scores(cheap=.72,reasoning=.12,risk=.10,
+                                        uncertainty=.99,parallel=.99),'balanced')
+        self.assertEqual(low,noisy)
+
+    def test_astra_requires_multiple_strong_signals(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        # Cheap sufficiency alone can create high demand, but without high reasoning
+        # Astra is rejected instead of becoming an expensive default.
+        row=policy.choose(cfg,'codex',
+                          scores(cheap=.01,reasoning=.30,risk=.20,uncertainty=.20),
+                          'factual')
+        self.assertEqual(row['decision'],'principal')
+        self.assertEqual(row['reason'],'astra_guard_rejected')
+
+    def test_context_gap_is_not_solved_by_buying_a_stronger_model(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        row=policy.choose(cfg,'codex',
+                          scores(cheap=.20,reasoning=.20,risk=.10,uncertainty=.98),
+                          'factual')
+        self.assertEqual(row['decision'],'principal')
+        self.assertEqual(row['reason'],'context_gap_not_model_problem')
 
 
 if __name__=='__main__':
