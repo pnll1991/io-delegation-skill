@@ -1,0 +1,108 @@
+{
+  "schema": "io-model-policy-live-calibration/v1",
+  "observed_at": "2026-09-20",
+  "source_workflow_run": 35480613044,
+  "source_git_sha": "d98c65ec8c1f334f0c005579509df84c402c0e39",
+  "runner": "DESKTOP-SJUA224-codex",
+  "notes": [
+    "Synthetic corpus only; no private project source.",
+    "Scores are TypeSafe Jev metadata-only outputs.",
+    "Profile validity is local literal-evidence validation.",
+    "This fixture calibrates routing behavior; it is not a production savings claim."
+  ],
+  "direct_profile_probes": [
+    {
+      "profile": "luna-medium",
+      "accepted": true,
+      "raw_tokens": 11940,
+      "wall_ms": 10765
+    },
+    {
+      "profile": "luna-high",
+      "accepted": false,
+      "raw_tokens": 11638,
+      "wall_ms": 11578,
+      "reason": "invalid_evidence_reference"
+    },
+    {
+      "profile": "terra-medium",
+      "accepted": true,
+      "raw_tokens": 13123,
+      "wall_ms": 8610
+    },
+    {
+      "profile": "sol-medium",
+      "accepted": true,
+      "raw_tokens": 13139,
+      "wall_ms": 9203
+    },
+    {
+      "profile": "astra-low",
+      "accepted": true,
+      "raw_tokens": 13945,
+      "wall_ms": 10531
+    }
+  ],
+  "orchestration_cases": [
+    {
+      "id": "easy",
+      "scores": {
+        "cheap_model_sufficient": 0.68,
+        "risk_high": 0.17,
+        "uncertainty_high": 0.91,
+        "reasoning_required": 0.08,
+        "parallelism_useful": 0.28
+      },
+      "observed_initial_profile": "luna-high",
+      "observed_final_profile": "luna-high",
+      "accepted": true,
+      "model_calls": 1,
+      "jev_raw_tokens": 861,
+      "worker_raw_tokens": 12001,
+      "wall_ms": 13985
+    },
+    {
+      "id": "medium",
+      "scores": {
+        "cheap_model_sufficient": 0.76,
+        "risk_high": 0.23,
+        "uncertainty_high": 0.86,
+        "reasoning_required": 0.09,
+        "parallelism_useful": 0.43
+      },
+      "observed_initial_profile": "luna-high",
+      "observed_final_profile": "luna-high",
+      "accepted": true,
+      "model_calls": 1,
+      "jev_raw_tokens": 876,
+      "worker_raw_tokens": 12277,
+      "wall_ms": 22110
+    },
+    {
+      "id": "hard-factual",
+      "scores": {
+        "cheap_model_sufficient": 0.71,
+        "risk_high": 0.26,
+        "uncertainty_high": 0.85,
+        "reasoning_required": 0.11,
+        "parallelism_useful": 0.5
+      },
+      "observed_initial_profile": "luna-high",
+      "observed_final_profile": "terra-medium",
+      "accepted": true,
+      "model_calls": 2,
+      "model_escalations": 1,
+      "jev_raw_tokens": 895,
+      "worker_raw_tokens": 26707,
+      "wall_ms": 53922,
+      "recovery": "luna-high failed validation; terra-medium passed"
+    }
+  ],
+  "calibrated_expectations": {
+    "product_default_mode": "suggest",
+    "auto_initial_profile_for_all_cases": "luna-high",
+    "hard_factual_next_profile": "terra-medium",
+    "astra_for_these_cases": false,
+    "default_max_escalations": 1
+  }
+}
