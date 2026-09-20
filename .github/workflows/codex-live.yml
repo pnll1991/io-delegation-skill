@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 concurrency:
   group: codex-live-runner
@@ -122,6 +123,47 @@ jobs:
           path: ${{ runner.temp }}\codex-live-public-key.json
           if-no-files-found: error
           retention-days: 1
+
+
+  ab-reference:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.actor == 'pnll1991' &&
+      github.event.issue.number == 31 &&
+      startsWith(github.event.comment.body, '/codex-live-ab-key-ref ')
+    runs-on: [self-hosted, windows, x64, codex-live]
+    timeout-minutes: 30
+    env:
+      CODEX_LIVE_REFERENCE_COMMAND: ${{ github.event.comment.body }}
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
+    steps:
+      - name: Checkout trusted main only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          clean: true
+
+      - name: Run referenced live Codex A/B
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          & .\scripts\codex_live_ab_from_comment.ps1 `
+            -ReferenceCommand "$env:CODEX_LIVE_REFERENCE_COMMAND" `
+            -Repository "${{ github.repository }}" `
+            -OutputPath "$env:RUNNER_TEMP\codex-live-ab.json"
+
+      - name: Upload sanitized live report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codex-live-ab-${{ github.run_id }}
+          path: ${{ runner.temp }}\codex-live-ab.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   ab-encrypted:
     if: >-
