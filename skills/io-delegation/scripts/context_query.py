@@ -252,7 +252,7 @@ class QueryEngine:
             sources, selections, direct_limit, 'model_worker_escalation_to_principal')
         metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
                        compute_tier='T2', compute_decision='principal_after_worker',
-                       escalated=bool(attempts), model_attempts=len(attempts),
+                       escalated=bool(escalations), model_attempts=len(attempts),
                        model_escalations=escalations,
                        initial_model_profile=initial_profile,
                        final_model_profile=current['id'])
@@ -531,6 +531,7 @@ class QueryEngine:
                     'initial_profile': metrics.get('initial_model_profile'),
                     'final_profile': metrics.get('final_model_profile'),
                     'attempts': attempts,
+                    'model_escalations': metrics.get('model_escalations', 0),
                     'max_profile': plan.get('max_profile'),
                 })
             else:
