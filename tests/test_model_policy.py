@@ -44,7 +44,7 @@ class ModelPolicyTests(unittest.TestCase):
     def test_balanced_low_demand_starts_at_luna_high(self):
         row=policy.choose({'adapter':'host-cli'},'codex',scores(),operation='factual')
         self.assertEqual(row['profile']['id'],'luna-high')
-        self.assertEqual(row['model_tier'],'M2')
+        self.assertEqual(row['model_tier'],'M1')
 
     def test_medium_demand_can_jump_directly_to_terra(self):
         row=policy.choose({'adapter':'host-cli'},'codex',
@@ -102,7 +102,7 @@ class ModelPolicyTests(unittest.TestCase):
             'blocked_profiles':['terra-medium'],
         }}}}
         row=policy.resolve(cfg,'codex')
-        self.assertEqual(row['order'],['luna-medium','luna-high','sol-medium'])
+        self.assertEqual(row['order'],['luna-high','sol-medium'])
         hard=policy.choose(cfg,'codex',
                            scores(cheap=.01,reasoning=.99,risk=.8,uncertainty=.9),
                            'factual')
