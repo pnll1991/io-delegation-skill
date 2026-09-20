@@ -33,11 +33,17 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertNotIn('astra-low',row['table'])
         self.assertEqual(row['order'],['luna-medium','luna-high','sol-medium','sol-high'])
 
-    def test_low_demand_starts_luna_medium(self):
-        row=policy.choose({'adapter':'host-cli'},'codex',scores(),operation='factual')
+    def test_cost_preset_low_demand_starts_luna_medium(self):
+        row=policy.choose({'adapter':'host-cli'},'codex',scores(),operation='factual',
+                          preset_override='cost')
         self.assertEqual(row['decision'],'worker')
         self.assertEqual(row['profile']['id'],'luna-medium')
         self.assertEqual(row['model_tier'],'M1')
+
+    def test_balanced_low_demand_prefers_luna_high_quality_margin(self):
+        row=policy.choose({'adapter':'host-cli'},'codex',scores(),operation='factual')
+        self.assertEqual(row['profile']['id'],'luna-high')
+        self.assertEqual(row['model_tier'],'M2')
 
     def test_medium_demand_can_jump_directly_to_terra(self):
         row=policy.choose({'adapter':'host-cli'},'codex',
@@ -64,7 +70,7 @@ class ModelPolicyTests(unittest.TestCase):
             scores(cheap=.67,reasoning=.11,risk=.27,uncertainty=.83,parallel=.48),
             operation='factual')
         self.assertEqual(easy['profile']['id'],'luna-high')
-        self.assertEqual(medium['profile']['id'],'luna-medium')
+        self.assertEqual(medium['profile']['id'],'luna-high')
         self.assertEqual(hard['profile']['id'],'luna-high')
 
     def test_codex_cost_weights_track_published_price_order(self):
