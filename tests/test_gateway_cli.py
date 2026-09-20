@@ -213,19 +213,23 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(code,0,err)
         state=gateway.load_state(self.project)
         self.assertEqual(state['model_policy_preset'],'balanced')
+        self.assertEqual(state['model_policy_mode'],'suggest')
         config=(self.host/'.codex/config.toml').read_text(encoding='utf-8')
         self.assertIn('--host',config);self.assertIn('codex',config)
         status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
         self.assertEqual(status['model_policy_preset'],'balanced')
+        self.assertEqual(status['model_policy_mode'],'suggest')
         self.assertEqual(status['model_policy']['codex']['max_profile'],'astra-low')
         self.assertEqual(status['model_policy']['codex']['order'][-1],'astra-low')
 
-        code,text,err=self.setup_codex('--model-preset','cost')
+        code,text,err=self.setup_codex('--model-preset','cost','--model-mode','auto')
         self.assertEqual(code,0,err)
         self.assertEqual(gateway.load_state(self.project)['model_policy_preset'],'cost')
+        self.assertEqual(gateway.load_state(self.project)['model_policy_mode'],'auto')
         code,text,err=self.setup_codex()
         self.assertEqual(code,0,err)
         self.assertEqual(gateway.load_state(self.project)['model_policy_preset'],'cost')
+        self.assertEqual(gateway.load_state(self.project)['model_policy_mode'],'auto')
 
     def test_cursor_status_policy_has_no_astra_by_default(self):
         worker=self.base/'host-policy-cursor.json'
@@ -251,7 +255,7 @@ class GatewayCLITests(unittest.TestCase):
         self.assertEqual(code,0,err)
         status=json.loads(self.cli('status','--project',str(self.project),'--json')[1])
         self.assertEqual(status['model_policy']['codex']['order'],
-                         ['luna-medium','luna-high','sol-medium'])
+                         ['luna-high','sol-medium'])
         code,text,err=self.cli('doctor','--project',str(self.project))
         self.assertEqual(code,0,err)
         self.assertIn('model policy codex',text)
