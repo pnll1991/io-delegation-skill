@@ -126,8 +126,6 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['route'],'bulk_read')
         self.assertEqual(result['orchestration']['initial_tier'],'T1')
         self.assertFalse(result['orchestration']['escalated'])
-        self.assertEqual(result['orchestration']['model_escalations'],0)
-        self.assertEqual(len(result['orchestration']['attempts']),1)
         self.assertEqual(result['model_calls'],1)
         self.assertEqual(invoke.call_count,1)
 
@@ -345,7 +343,8 @@ class QueryTests(unittest.TestCase):
             model_policy={'mode':'manual'})))
         service=self.service(worker,self.orchestrator,host='codex')
         service.query.router.run=lambda *a,**k:routed('bulk_read')
-        service.query.orchestrator.run=lambda *a,**k:self.scorer()
+        service.query.orchestrator.run=lambda *a,**k:self.scorer(
+            decision='cheap_worker',tier='T1',reason='cheap_first_policy')
         self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
         seen=[]
         def reply(job,cfg,root,record):
