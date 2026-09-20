@@ -211,7 +211,7 @@ class QueryTests(unittest.TestCase):
         row.update(changes)
         return row
 
-    def test_codex_policy_picks_luna_medium_for_easy_bulk(self):
+    def test_codex_balanced_policy_prefers_luna_high_for_easy_bulk(self):
         worker=self.host_worker()
         service=self.service(worker,self.orchestrator,host='codex')
         service.query.router.run=lambda *a,**k:routed('bulk_read')
@@ -226,8 +226,8 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['route'],'bulk_read')
         self.assertEqual(seen[0]['adapter'],'codex-cli')
         self.assertEqual(seen[0]['model'],'gpt-5.6-luna')
-        self.assertEqual(seen[0]['reasoning_effort'],'medium')
-        self.assertEqual(result['orchestration']['initial_profile'],'luna-medium')
+        self.assertEqual(seen[0]['reasoning_effort'],'high')
+        self.assertEqual(result['orchestration']['initial_profile'],'luna-high')
 
     def test_codex_policy_can_jump_directly_to_astra_low(self):
         worker=self.host_worker()
@@ -262,9 +262,9 @@ class QueryTests(unittest.TestCase):
             return raw,meta
         with patch('io_delegate.invoke',side_effect=reply):
             result=self.call(service)
-        self.assertEqual(seen[:2],['gpt-5.6-luna:medium','gpt-5.6-luna:high'])
+        self.assertEqual(seen[:2],['gpt-5.6-luna:high','gpt-5.6-terra:medium'])
         self.assertEqual(result['route'],'bulk_read')
-        self.assertEqual(result['orchestration']['final_profile'],'luna-high')
+        self.assertEqual(result['orchestration']['final_profile'],'terra-medium')
         self.assertEqual(len(result['orchestration']['attempts']),2)
         self.assertTrue(result['orchestration']['escalated'])
 

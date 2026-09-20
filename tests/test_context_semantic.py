@@ -80,6 +80,23 @@ class SemanticTests(unittest.TestCase):
         with patch('io_delegate.invoke',side_effect=changed):r=self.run_call()
         self.assertEqual(r['status'],'error')
 
+    def test_unknowns_are_not_accepted_or_cached(self):
+        def uncertain(job,cfg,root,record):
+            raw,m=reply(job,cfg,root,record)
+            obj=json.loads(raw);obj['unknowns']=['Need more evidence']
+            return json.dumps(obj),m
+        with patch('io_delegate.invoke',side_effect=uncertain) as invoke:
+            first=self.run_call()
+            second=self.run_call()
+        self.assertEqual(first['status'],'ok')
+        self.assertEqual(second['status'],'ok')
+        self.assertEqual(invoke.call_count,2)
+        journal=(self.audit/'.io-delegation/worker-events.jsonl').read_text()
+        completed=[json.loads(x) for x in journal.splitlines()
+                   if json.loads(x).get('event')=='worker_completed']
+        self.assertTrue(completed)
+        self.assertTrue(all(row['accepted'] is False for row in completed))
+
     def test_grouped_questions_one_inference(self):
         self.args['questions']=['What value?','What symbol?'];del self.args['question']
         with patch('io_delegate.invoke',side_effect=reply) as invoke:r=self.run_call()
