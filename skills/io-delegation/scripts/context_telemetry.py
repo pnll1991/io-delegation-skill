@@ -109,7 +109,7 @@ def operations(path):
             if iid in done and e!=done[iid]:invalid+=1
             done[iid]=e
         else:invalid+=1
-    counts={};tiers={};profiles={};cache_hits=source=selected=returned=dispatch=orchestrator_calls=escalations=0
+    counts={};tiers={};profiles={};modes={};cache_hits=source=selected=returned=dispatch=orchestrator_calls=escalations=0
     control_tokens=0;control_usage_complete=True
     for e in done.values():
         key=e.get('operation');counts[key]=counts.get(key,0)+1
@@ -126,6 +126,10 @@ def operations(path):
             else:escalations+=model_escalations
         else:
             escalations+=e.get('escalated') is True
+        mode=e.get('model_policy_mode')
+        if mode is not None:
+            if mode not in ('manual','suggest','auto'): invalid+=1
+            else: modes[mode]=modes.get(mode,0)+1
         profile=e.get('final_model_profile')
         if profile is not None:
             if not isinstance(profile,str) or not profile:invalid+=1
@@ -145,7 +149,7 @@ def operations(path):
     return dict(counts=counts,completed=len(done),cache_hits=cache_hits,source_bytes=source,
                 selected_bytes=selected,result_bytes=returned,model_calls=dispatch,
                 orchestrator_calls=orchestrator_calls,escalations=escalations,compute_tiers=tiers,
-                model_profiles=profiles,
+                model_profiles=profiles,model_policy_modes=modes,
                 control_tokens=control_tokens if control_usage_complete else None,
                 control_usage_complete=control_usage_complete,
                 complete=not invalid and started==set(done),invalid_records=invalid,
