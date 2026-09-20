@@ -20,7 +20,7 @@ coding agent
         targeted   principal   host-aware worker
 ```
 
-Critical reasoning and edits stay in the main agent. The route-selector Jev remains optional. With an approved supported CLI worker, compute orchestration is automatic but conservative: local rules keep obvious local/sensitive work out of Jev, while bulk factual candidates get a host-specific approved model chosen by local cost/capability policy under a user ceiling.
+Critical reasoning and edits stay in the main agent. The route-selector Jev remains optional. With an approved supported CLI worker, compute scoring is available but model switching is control-first: `suggest` is the default, `manual` keeps the user's explicit model, and only `auto` lets local policy choose an approved host-specific profile under the user's ceiling.
 
 ## Real use cases
 
@@ -28,7 +28,7 @@ Core cases:
 
 1. **Understand a large or unfamiliar repository.** Locate relevant sources, extract bounded evidence, then keep causal reasoning in the main agent.
 2. **Audit many files.** HTML/JSON/config inventories should use deterministic extraction instead of making an LLM read every file.
-3. **Compare behavior across files.** `query` returns bounded selected evidence; with an approved CLI worker, host-aware orchestration can answer a bounded factual comparison with the minimum efficient configured profile and bounded escalation.
+3. **Compare behavior across files.** `query` returns bounded selected evidence; with an approved CLI worker it can recommend an efficient profile, use a fixed user model, or—only in explicit `auto` mode—run the minimum sufficient approved profile with bounded cost-aware escalation.
 4. **Protect critical reasoning.** Security, architecture and debugging should normally route back to the principal agent with bounded evidence.
 5. **Control context and observe routing.** Audit records expose routes, cache/model calls and errors without logging source contents.
 
@@ -70,7 +70,7 @@ By default setup:
 - registers one machine-local/global `io_context` MCP per host and resolves the active project at runtime
 - auto-detects a safe source scope
 - keeps the experimental Jev route selector off by default; explicit `--jev on`, `--jev auto`, or a reviewed router config is required
-- when an approved worker is configured, enables Jev host-aware model orchestration in `auto` mode with `balanced` preset; `--orchestration off` is the persistent escape hatch
+- when an approved worker is configured, enables Jev host-aware compute scoring with `suggest / balanced` as the model-control default; `--model-mode auto` is required for dynamic switching and `--orchestration off` remains the persistent escape hatch
 - keeps the older unconditional `context_auto_dispatch` path off unless explicitly enabled
 - leaves the read guard off unless explicitly requested
 - runs `doctor`
