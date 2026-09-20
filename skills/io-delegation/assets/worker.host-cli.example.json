@@ -10,16 +10,19 @@
       "codex": {
         "max_profile": "astra-low",
         "allow_escalation": true,
-        "max_escalations": 2,
-        "blocked_profiles": []
+        "max_escalations": 1,
+        "blocked_profiles": [],
+        "max_escalation_cost_ratio": 4
       },
       "cursor": {
         "strategy": "direct",
         "max_profile": "sol-high",
         "allow_escalation": true,
         "max_escalations": 1,
-        "blocked_profiles": []
+        "blocked_profiles": [],
+        "max_escalation_cost_ratio": 4
       }
-    }
+    },
+    "mode": "suggest"
   }
 }
