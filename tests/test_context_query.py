@@ -323,6 +323,23 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['orchestration']['mode'],'suggest')
         self.assertEqual(result['model_calls'],0)
 
+    def test_suggest_mode_respects_principal_policy_recommendation(self):
+        worker=self.host_worker(mode='suggest')
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:self.scorer(
+            scores=dict(cheap_model_sufficient=.20,risk_high=.10,
+                        uncertainty_high=.98,reasoning_required=.20,
+                        parallelism_useful=.10),
+            decision='cheap_worker',tier='T1',reason='cheap_first_policy')
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        with patch('io_delegate.invoke',side_effect=AssertionError('principal suggestion must not dispatch')):
+            result=self.call(service)
+        self.assertEqual(result['route'],'principal')
+        self.assertEqual(result['reason'],'context_gap_not_model_problem')
+        self.assertEqual(result['model_suggestion']['decision'],'principal')
+        self.assertEqual(result['model_calls'],0)
+
     def test_manual_mode_requires_explicit_model_for_host_cli(self):
         worker=self.host_worker(mode='manual')
         service=self.service(worker,self.orchestrator,host='codex')
