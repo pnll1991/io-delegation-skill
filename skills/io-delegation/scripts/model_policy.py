@@ -10,8 +10,11 @@ import math
 from typing import Any
 
 PRESETS = ("cost", "balanced", "quality")
+MODES = ("manual", "suggest", "auto")
 HOSTS = ("codex", "cursor", "claude-code")
 EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
+DEFAULT_MODE = "suggest"
+DEFAULT_ESCALATION_COST_RATIO = {"cost": 1.5, "balanced": 4.0, "quality": 10.0}
 
 # Defaults are policy weights, not benchmark percentages. Cursor ordering is informed
 # by CursorBench 4.0 (2026-09-10); Codex ordering follows current OpenAI model
@@ -21,11 +24,11 @@ DEFAULT_PROFILES = {
         dict(id="luna-medium", model="gpt-5.6-luna", effort="medium",
              capability=.30, cost_index=.020, source="openai-pricing-2026-09"),
         dict(id="luna-high", model="gpt-5.6-luna", effort="high",
-             capability=.45, cost_index=.024, source="openai-pricing-plus-live-2026-09"),
+             capability=.48, cost_index=.024, source="openai-pricing-plus-live-2026-09"),
         dict(id="terra-medium", model="gpt-5.6-terra", effort="medium",
-             capability=.58, cost_index=.20, source="openai-pricing-2026-09"),
+             capability=.64, cost_index=.20, source="openai-pricing-2026-09"),
         dict(id="sol-medium", model="gpt-5.6-sol", effort="medium",
-             capability=.76, cost_index=.40, source="openai-pricing-2026-09"),
+             capability=.88, cost_index=.40, source="openai-pricing-2026-09"),
         # Product hard ceiling requested by default: Astra is never above low.
         dict(id="astra-low", model="gpt-6-astra", effort="low",
              capability=1.00, cost_index=1.00, source="openai-pricing-2026-09"),
@@ -59,7 +62,7 @@ DEFAULT_PROFILES = {
 DEFAULT_ORDERS = {
     "codex": {
         "cost": ["luna-medium", "luna-high", "terra-medium", "sol-medium", "astra-low"],
-        "balanced": ["luna-medium", "luna-high", "terra-medium", "sol-medium", "astra-low"],
+        "balanced": ["luna-high", "terra-medium", "sol-medium", "astra-low"],
         "quality": ["luna-high", "terra-medium", "sol-medium", "astra-low"],
     },
     "cursor": {
@@ -72,7 +75,7 @@ DEFAULT_ORDERS = {
 }
 
 DEFAULT_MAX = {"codex": "astra-low", "cursor": "sol-high"}
-PRESET_BIAS = {"cost": -.10, "balanced": 0.0, "quality": .10}
+PRESET_BIAS = {"cost": -.08, "balanced": 0.0, "quality": .08}
 
 
 class ModelPolicyError(ValueError):
@@ -135,8 +138,8 @@ def _host_policy(raw: Any, host: str) -> dict[str, Any]:
         raise ModelPolicyError(f"{host} model policy must be an object")
     allowed = {
         "profiles", "orders", "max_profile", "min_profile", "blocked_profiles",
-        "allowed_profiles", "max_escalations", "allow_escalation", "strategy",
-        "native_router_model",
+        "allowed_profiles", "max_escalations", "allow_escalation",
+        "max_escalation_cost_ratio", "strategy", "native_router_model",
     }
     if set(raw) - allowed:
         raise ModelPolicyError(f"unknown {host} model policy option")
@@ -178,12 +181,18 @@ def _host_policy(raw: Any, host: str) -> dict[str, Any]:
         not isinstance(allowed_profiles, list) or not allowed_profiles or any(x not in table for x in allowed_profiles)
     ):
         raise ModelPolicyError(f"invalid {host} allowed_profiles")
-    max_escalations = raw.get("max_escalations", 2)
+    max_escalations = raw.get("max_escalations", 1)
     if type(max_escalations) is not int or not 0 <= max_escalations <= 8:
         raise ModelPolicyError("max_escalations must be 0..8")
     allow_escalation = raw.get("allow_escalation", True)
     if type(allow_escalation) is not bool:
         raise ModelPolicyError("allow_escalation must be boolean")
+    max_escalation_cost_ratio = raw.get("max_escalation_cost_ratio")
+    if max_escalation_cost_ratio is not None:
+        max_escalation_cost_ratio = _positive(
+            max_escalation_cost_ratio, "max_escalation_cost_ratio")
+        if not 1.0 <= max_escalation_cost_ratio <= 100.0:
+            raise ModelPolicyError("max_escalation_cost_ratio must be between 1 and 100")
     strategy = raw.get("strategy", "direct")
     if strategy not in ("direct", "native-router-first"):
         raise ModelPolicyError("strategy must be direct or native-router-first")
@@ -200,22 +209,27 @@ def _host_policy(raw: Any, host: str) -> dict[str, Any]:
         "blocked_profiles": list(blocked),
         "allowed_profiles": list(allowed_profiles) if allowed_profiles is not None else None,
         "max_escalations": max_escalations, "allow_escalation": allow_escalation,
+        "max_escalation_cost_ratio": max_escalation_cost_ratio,
         "strategy": strategy, "native_router_model": native,
     }
 
 
-def resolve(cfg: dict[str, Any], host: str | None, preset_override: str | None = None) -> dict[str, Any]:
+def resolve(cfg: dict[str, Any], host: str | None, preset_override: str | None = None,
+            mode_override: str | None = None) -> dict[str, Any]:
     policy = cfg.get("model_policy", {})
     if policy is None:
         policy = {}
     if not isinstance(policy, dict):
         raise ModelPolicyError("model_policy must be an object")
-    allowed = {"preset", "hosts"}
+    allowed = {"preset", "mode", "hosts"}
     if set(policy) - allowed:
         raise ModelPolicyError("unknown model_policy option")
     preset = preset_override or policy.get("preset", "balanced")
     if preset not in PRESETS:
         raise ModelPolicyError("model_policy preset must be cost, balanced or quality")
+    mode = mode_override or policy.get("mode", DEFAULT_MODE)
+    if mode not in MODES:
+        raise ModelPolicyError("model_policy mode must be manual, suggest or auto")
     hosts = policy.get("hosts", {})
     if not isinstance(hosts, dict) or any(x not in HOSTS for x in hosts):
         raise ModelPolicyError("model_policy.hosts contains an unsupported host")
@@ -225,9 +239,11 @@ def resolve(cfg: dict[str, Any], host: str | None, preset_override: str | None =
         effective_host = "codex" if adapter == "codex-cli" else "cursor" if adapter == "cursor-cli" else None
     if effective_host not in ("codex", "cursor"):
         return {
-            "host": effective_host, "preset": preset, "profiles": [], "table": {}, "order": [],
+            "host": effective_host, "preset": preset, "mode": mode,
+            "profiles": [], "table": {}, "order": [],
             "max_profile": None, "min_profile": None, "max_escalations": 0,
-            "allow_escalation": False, "strategy": "direct", "native_router_model": None,
+            "allow_escalation": False, "max_escalation_cost_ratio": 1.0,
+            "strategy": "direct", "native_router_model": None,
         }
     hp = _host_policy(hosts.get(effective_host), effective_host)
     order = list(hp["orders"][preset])
@@ -243,8 +259,12 @@ def resolve(cfg: dict[str, Any], host: str | None, preset_override: str | None =
     ]
     if not order:
         raise ModelPolicyError(f"{effective_host} model policy has no runnable profiles")
+    escalation_ratio = hp["max_escalation_cost_ratio"]
+    if escalation_ratio is None:
+        escalation_ratio = DEFAULT_ESCALATION_COST_RATIO[preset]
     return {
-        **hp, "host": effective_host, "preset": preset, "order": order,
+        **hp, "host": effective_host, "preset": preset, "mode": mode, "order": order,
+        "max_escalation_cost_ratio": escalation_ratio,
     }
 
 
@@ -260,101 +280,120 @@ def validate_config(cfg: dict[str, Any]) -> None:
 
 
 def task_demand(scores: dict[str, Any], preset: str = "balanced") -> float:
+    """Estimate model-strength demand, not missing-context uncertainty.
+
+    Jev does not see source bodies. uncertainty_high therefore describes whether the
+    selected corpus may be incomplete; buying a stronger model cannot recover missing
+    evidence. parallelism_useful describes decomposition, not model intelligence.
+    """
     if preset not in PRESETS:
         raise ModelPolicyError("unknown model policy preset")
     cheap = _finite(scores.get("cheap_model_sufficient", .5), "cheap_model_sufficient")
     reasoning = _finite(scores.get("reasoning_required", .5), "reasoning_required")
     risk = _finite(scores.get("risk_high", .5), "risk_high")
-    uncertainty = _finite(scores.get("uncertainty_high", .5), "uncertainty_high")
-    parallel = _finite(scores.get("parallelism_useful", 0), "parallelism_useful")
-    # Missing-corpus uncertainty is deliberately a weak model-strength signal:
-    # Jev sees metadata, not fragment bodies, so buying a stronger model cannot recover
-    # unseen evidence. The local evidence validator/unknowns path handles that case.
-    # Cheap-model sufficiency, reasoning and risk drive capability demand.
+    _finite(scores.get("uncertainty_high", .5), "uncertainty_high")
+    _finite(scores.get("parallelism_useful", 0), "parallelism_useful")
     base = max(
         1.0 - cheap,
         reasoning,
-        .70 * risk + .30 * reasoning,
-        .20 * uncertainty + .10 * parallel,
+        .65 * risk + .35 * reasoning,
     )
     return min(1.0, max(0.0, base + PRESET_BIAS[preset]))
 
 
-def choose(cfg: dict[str, Any], host: str | None, scores: dict[str, Any], operation: str,
-           preset_override: str | None = None) -> dict[str, Any]:
-    policy = resolve(cfg, host, preset_override)
-    if operation in {"debugging", "architecture", "security", "editing", "generation"}:
-        return dict(decision="principal", reason="sensitive_operation", host=policy["host"],
-                    preset=policy["preset"], demand=1.0, profile=None, model_tier=None)
-    if not policy["order"]:
-        return dict(decision="principal", reason="host_worker_unavailable", host=policy["host"],
-                    preset=policy["preset"], demand=1.0, profile=None, model_tier=None)
+def _astra_allowed(scores: dict[str, Any], demand: float) -> bool:
+    """Astra is an exceptional tier: require multiple independent strong signals."""
+    cheap = _finite(scores.get("cheap_model_sufficient", .5), "cheap_model_sufficient")
+    reasoning = _finite(scores.get("reasoning_required", .5), "reasoning_required")
+    risk = _finite(scores.get("risk_high", .5), "risk_high")
+    return (
+        demand >= .90
+        and reasoning >= .85
+        and (risk >= .55 or cheap <= .12)
+    )
 
-    # Cursor Router can be explicitly selected by the user/team. We do not guess its
-    # CLI identifier or optimization mode; native_router_model is an exact reviewed string.
+
+def choose(cfg: dict[str, Any], host: str | None, scores: dict[str, Any], operation: str,
+           preset_override: str | None = None,
+           mode_override: str | None = None) -> dict[str, Any]:
+    policy = resolve(cfg, host, preset_override, mode_override)
+    demand = task_demand(scores, policy["preset"])
+    uncertainty = _finite(scores.get("uncertainty_high", .5), "uncertainty_high")
+    cheap = _finite(scores.get("cheap_model_sufficient", .5), "cheap_model_sufficient")
+    common = dict(host=policy["host"], preset=policy["preset"], mode=policy["mode"],
+                  demand=demand, order=policy["order"],
+                  max_profile=policy["max_profile"],
+                  max_escalations=policy["max_escalations"],
+                  max_escalation_cost_ratio=policy["max_escalation_cost_ratio"],
+                  allow_escalation=policy["allow_escalation"])
+
+    if operation in {"debugging", "architecture", "security", "editing", "generation"}:
+        return dict(decision="principal", reason="sensitive_operation",
+                    profile=None, model_tier=None, **common)
+    if not policy["order"]:
+        return dict(decision="principal", reason="host_worker_unavailable",
+                    profile=None, model_tier=None, **common)
+
+    # A very high missing-context signal combined with low cheap-worker sufficiency is
+    # a coverage problem. Escalating model strength would pay more for the same missing
+    # evidence, so fail closed to the principal instead.
+    if uncertainty >= .92 and cheap <= .35:
+        return dict(decision="principal", reason="context_gap_not_model_problem",
+                    profile=None, model_tier=None, **common)
+
     if policy["strategy"] == "native-router-first":
         profile = {
             "id": "cursor-native-router", "model": policy["native_router_model"],
             "cursor_model": policy["native_router_model"], "effort": "medium",
             "capability": 1.0, "cost_index": 0.0, "source": "cursor-native-router",
         }
-        return dict(decision="worker", reason="cursor_native_router", host="cursor",
-                    preset=policy["preset"], demand=task_demand(scores, policy["preset"]),
-                    profile=profile, model_tier="M-auto", order=["cursor-native-router"],
-                    max_escalations=0, allow_escalation=False)
+        return dict(decision="worker", reason="cursor_native_router",
+                    profile=profile, model_tier="M-auto", **common)
 
-    demand = task_demand(scores, policy["preset"])
     table = policy["table"]
     eligible = [
         (index, table[pid])
         for index, pid in enumerate(policy["order"])
         if table[pid]["capability"] >= demand
     ]
-    selected = None
-    selected_index = None
-    if eligible:
-        # Capability is already a hard eligibility filter. Do not divide cost by
-        # capability again or stronger models get double credit and creep upward.
-        # Presets trade absolute normalized cost against quality margin and latency.
-        def objective(row):
-            index, profile = row
-            capability = max(.01, float(profile["capability"]))
-            expected_cost = float(profile["cost_index"])
-            quality_penalty = 1.0 - capability
-            steps = float(profile.get("benchmark_steps", 0) or 0)
-            latency_penalty = min(1.0, steps / 100.0) if steps else 0.0
-            if policy["preset"] == "cost":
-                value = .92 * expected_cost + .08 * latency_penalty
-            elif policy["preset"] == "quality":
-                value = .25 * expected_cost + .70 * quality_penalty + .05 * latency_penalty
-            else:
-                value = .75 * expected_cost + .20 * quality_penalty + .05 * latency_penalty
-            return (value, index)
-        selected_index, selected = min(eligible, key=objective)
-    if selected is None:
+    if not eligible:
         return dict(decision="principal", reason="model_ceiling_insufficient",
-                    host=policy["host"], preset=policy["preset"], demand=demand,
-                    profile=None, model_tier=None, order=policy["order"],
-                    max_profile=policy["max_profile"])
+                    profile=None, model_tier=None, **common)
+
+    selected_index, selected = eligible[0]
+    if selected["id"] == "astra-low" and not _astra_allowed(scores, demand):
+        return dict(decision="principal", reason="astra_guard_rejected",
+                    profile=None, model_tier=None, **common)
+
     return dict(decision="worker", reason="minimum_sufficient_profile",
-                host=policy["host"], preset=policy["preset"], demand=demand,
                 profile=dict(selected), profile_index=selected_index,
-                model_tier=f"M{selected_index+1}", order=policy["order"],
-                max_profile=policy["max_profile"],
-                max_escalations=policy["max_escalations"],
-                allow_escalation=policy["allow_escalation"])
+                model_tier=f"M{selected_index+1}", **common)
 
 
 def next_profile(cfg: dict[str, Any], host: str | None, current: str,
-                 preset_override: str | None = None) -> dict[str, Any] | None:
-    policy = resolve(cfg, host, preset_override)
+                 preset_override: str | None = None,
+                 mode_override: str | None = None,
+                 scores: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    policy = resolve(cfg, host, preset_override, mode_override)
     if not policy["allow_escalation"] or current not in policy["order"]:
         return None
     index = policy["order"].index(current) + 1
     if index >= len(policy["order"]):
         return None
+    current_item = policy["table"][current]
     item = dict(policy["table"][policy["order"][index]])
+    current_cost = max(.000001, float(current_item.get("cost_index", 0)))
+    next_cost = float(item.get("cost_index", 0))
+    if next_cost / current_cost > float(policy["max_escalation_cost_ratio"]):
+        return None
+    if item["id"] == "astra-low":
+        if scores is None:
+            return None
+        demand = task_demand(scores, policy["preset"])
+        if not _astra_allowed(scores, demand):
+            return None
     return {"profile": item, "model_tier": f"M{index+1}", "profile_index": index}
+
 
 
 def _cursor_model(profile: dict[str, Any]) -> str:
@@ -426,9 +465,11 @@ def summary(cfg: dict[str, Any], hosts: list[str] | tuple[str, ...],
         try:
             policy = resolve(cfg, host, preset_override)
             result[host] = {
-                "preset": policy["preset"], "strategy": policy["strategy"],
-                "order": policy["order"], "max_profile": policy["max_profile"],
+                "mode": policy["mode"], "preset": policy["preset"],
+                "strategy": policy["strategy"], "order": policy["order"],
+                "max_profile": policy["max_profile"],
                 "max_escalations": policy["max_escalations"],
+                "max_escalation_cost_ratio": policy["max_escalation_cost_ratio"],
             }
         except ModelPolicyError as exc:
             result[host] = {"error": str(exc)}
