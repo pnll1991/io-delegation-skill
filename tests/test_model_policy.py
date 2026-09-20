@@ -175,17 +175,16 @@ class ModelPolicyTests(unittest.TestCase):
         derived,_=policy.apply_profile(cfg,'cursor',cursor)
         self.assertEqual(derived['executable'],'/approved/agent')
 
-    def test_next_profile_blocks_large_balanced_cost_jump(self):
-        cfg={'adapter':'host-cli'}
-        self.assertIsNone(policy.next_profile(cfg,'cursor','luna-high'))
+    def test_balanced_allows_one_empirically_useful_retry(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        codex=policy.next_profile(cfg,'codex','luna-high')
+        self.assertEqual(codex['profile']['id'],'terra-medium')
+        cursor=policy.next_profile(cfg,'cursor','luna-high')
+        self.assertEqual(cursor['profile']['id'],'sol-medium')
 
-    def test_user_can_raise_escalation_cost_ratio(self):
-        cfg={'adapter':'host-cli','model_policy':{'mode':'auto','hosts':{'cursor':{
-            'max_escalation_cost_ratio':10.0,
-        }}}}
-        nxt=policy.next_profile(cfg,'cursor','luna-high')
-        self.assertEqual(nxt['profile']['id'],'sol-medium')
-        self.assertEqual(nxt['model_tier'],'M3')
+    def test_cost_preset_blocks_large_price_jump(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto','preset':'cost'}}
+        self.assertIsNone(policy.next_profile(cfg,'codex','luna-high'))
 
     def test_default_mode_is_suggest_and_can_be_overridden(self):
         self.assertEqual(policy.resolve({'adapter':'host-cli'},'codex')['mode'],'suggest')
