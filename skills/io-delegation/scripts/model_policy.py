@@ -19,16 +19,16 @@ EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 DEFAULT_PROFILES = {
     "codex": [
         dict(id="luna-medium", model="gpt-5.6-luna", effort="medium",
-             capability=.30, cost_index=.04, source="openai-2026-09"),
+             capability=.30, cost_index=.020, source="openai-pricing-2026-09"),
         dict(id="luna-high", model="gpt-5.6-luna", effort="high",
-             capability=.45, cost_index=.10, source="openai-2026-09"),
+             capability=.45, cost_index=.024, source="openai-pricing-plus-live-2026-09"),
         dict(id="terra-medium", model="gpt-5.6-terra", effort="medium",
-             capability=.58, cost_index=.42, source="openai-2026-09"),
+             capability=.58, cost_index=.20, source="openai-pricing-2026-09"),
         dict(id="sol-medium", model="gpt-5.6-sol", effort="medium",
-             capability=.76, cost_index=.80, source="openai-2026-09"),
+             capability=.76, cost_index=.40, source="openai-pricing-2026-09"),
         # Product hard ceiling requested by default: Astra is never above low.
         dict(id="astra-low", model="gpt-6-astra", effort="low",
-             capability=1.00, cost_index=1.00, source="openai-2026-09"),
+             capability=1.00, cost_index=1.00, source="openai-pricing-2026-09"),
     ],
     "cursor": [
         # CursorBench 4.0: Luna medium $0.08 / 22.2%, Luna high $0.25 / 29.4%.
@@ -267,12 +267,15 @@ def task_demand(scores: dict[str, Any], preset: str = "balanced") -> float:
     risk = _finite(scores.get("risk_high", .5), "risk_high")
     uncertainty = _finite(scores.get("uncertainty_high", .5), "uncertainty_high")
     parallel = _finite(scores.get("parallelism_useful", 0), "parallelism_useful")
-    # Max keeps a single high-risk/high-reasoning signal from being averaged away.
+    # Missing-corpus uncertainty is deliberately a weak model-strength signal:
+    # Jev sees metadata, not fragment bodies, so buying a stronger model cannot recover
+    # unseen evidence. The local evidence validator/unknowns path handles that case.
+    # Cheap-model sufficiency, reasoning and risk drive capability demand.
     base = max(
         1.0 - cheap,
         reasoning,
-        .86 * risk + .14 * reasoning,
-        .72 * uncertainty + .18 * reasoning + .10 * parallel,
+        .70 * risk + .30 * reasoning,
+        .20 * uncertainty + .10 * parallel,
     )
     return min(1.0, max(0.0, base + PRESET_BIAS[preset]))
 
