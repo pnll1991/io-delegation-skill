@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sys
 import unittest
 
@@ -216,6 +217,23 @@ class ModelPolicyTests(unittest.TestCase):
                           'factual')
         self.assertEqual(row['decision'],'principal')
         self.assertEqual(row['reason'],'context_gap_not_model_problem')
+
+
+    def test_sanitized_live_calibration_fixture_stays_on_luna_then_bounded_retry(self):
+        fixture=Path(__file__).resolve().parents[1]/'benchmarks/v1-validation/evidence/model-policy-live-calibration-20260920.json'
+        data=json.loads(fixture.read_text(encoding='utf-8'))
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto','preset':'balanced'}}
+        for case in data['orchestration_cases']:
+            row=policy.choose(cfg,'codex',case['scores'],'factual')
+            self.assertEqual(row['decision'],'worker',case['id'])
+            self.assertEqual(row['profile']['id'],'luna-high',case['id'])
+            self.assertNotEqual(row['profile']['id'],'astra-low',case['id'])
+        nxt=policy.next_profile(
+            cfg,'codex','luna-high',
+            scores=data['orchestration_cases'][-1]['scores'])
+        self.assertIsNotNone(nxt)
+        self.assertEqual(nxt['profile']['id'],'terra-medium')
+        self.assertEqual(policy.resolve(cfg,'codex')['max_escalations'],1)
 
 
 if __name__=='__main__':
