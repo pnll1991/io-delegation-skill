@@ -412,19 +412,22 @@ class QueryEngine:
                 except model_policy.ModelPolicyError:
                     plan = None
                 suggestion = self._suggestion(plan)
+                policy_allows_worker = bool(plan and plan.get('decision') == 'worker')
                 if adapter == 'host-cli':
+                    reason = ('model_suggestion_only' if policy_allows_worker
+                              else (plan.get('reason') if plan else 'model_policy_error'))
                     bundle, result = self._principal_bundle(
-                        sources, selections, direct_limit,
-                        'model_suggestion_only', recommended='principal')
+                        sources, selections, direct_limit, reason, recommended='principal')
                     metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
                                    compute_tier='T2')
-                elif compute_result.get('decision') == 'cheap_worker':
+                elif policy_allows_worker and compute_result.get('decision') == 'cheap_worker':
                     result = self._run_fixed_worker(
                         arguments, selections, sources, direct_limit, metrics)
                 else:
+                    reason = (plan.get('reason') if plan and not policy_allows_worker
+                              else compute_result.get('reason', 'compute_gate_rejected'))
                     bundle, result = self._principal_bundle(
-                        sources, selections, direct_limit,
-                        compute_result.get('reason', 'compute_gate_rejected'),
+                        sources, selections, direct_limit, reason,
                         recommended='principal')
                     metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
                                    compute_tier='T2')
