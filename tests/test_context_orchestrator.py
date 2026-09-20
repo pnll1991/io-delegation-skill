@@ -37,13 +37,15 @@ class ComputeOrchestratorTests(unittest.TestCase):
         self.assertEqual(row['scores']['cheap_model_sufficient'],.91)
         self.assertEqual(row['usage'],dict(input_tokens=44,output_tokens=9))
 
-    def test_policy_selects_cheap_worker_only_when_all_gates_pass(self):
+    def test_policy_gates_on_sufficiency_risk_and_reasoning_not_metadata_uncertainty(self):
         scores=compute.parse_response(response(),compute.load_config(self.cfg))['scores']
         self.assertEqual(compute.decide(scores,'factual',True)['tier'],'T1')
         for key,value in [('cheap_model_sufficient',.4),('risk_high',.8),
-                          ('uncertainty_high',.8),('reasoning_required',.8)]:
+                          ('reasoning_required',.8)]:
             bad=dict(scores);bad[key]=value
             self.assertEqual(compute.decide(bad,'factual',True)['tier'],'T2')
+        noisy=dict(scores);noisy['uncertainty_high']=.99
+        self.assertEqual(compute.decide(noisy,'factual',True)['tier'],'T1')
 
     def test_sensitive_operations_and_missing_worker_force_principal(self):
         scores=compute.parse_response(response(),compute.load_config(self.cfg))['scores']

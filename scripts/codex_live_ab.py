@@ -129,12 +129,14 @@ def orchestrated_case(project, audit, worker_path, orchestrator_path, paths, cas
         "route": result.get("route"),
         "decision": orch.get("decision"),
         "reason": orch.get("reason"),
+        "mode": orch.get("mode"),
         "preset": orch.get("preset"),
         "demand": orch.get("demand"),
         "model_tier": orch.get("model_tier"),
         "initial_profile": orch.get("initial_profile"),
         "final_profile": orch.get("final_profile"),
         "attempts": orch.get("attempts", []),
+        "model_escalations": orch.get("model_escalations", 0),
         "scores": orch.get("scores"),
         "jev_usage": usage_row(orch.get("usage")),
         "worker": {
@@ -182,6 +184,7 @@ def main(argv=None):
             "adapter": "host-cli",
             "timeout_seconds": 120,
             "max_calls_per_workspace": 4,
+            "model_policy": {"mode": "auto", "preset": "balanced"},
             "context_limits": {
                 "max_selected_bytes": 24000,
                 "max_request_bytes": 40000,
@@ -194,9 +197,12 @@ def main(argv=None):
         validated_worker = io_delegate.load_config(str(worker_path))
         policy = model_policy.resolve(validated_worker, "codex", "balanced")
         report["effective_policy"] = {
+            "mode": policy["mode"],
             "preset": policy["preset"],
             "order": policy["order"],
             "max_profile": policy["max_profile"],
+            "max_escalations": policy["max_escalations"],
+            "max_escalation_cost_ratio": policy["max_escalation_cost_ratio"],
         }
 
         for pid in policy["order"]:

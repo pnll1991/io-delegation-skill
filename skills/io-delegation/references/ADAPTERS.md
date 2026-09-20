@@ -15,12 +15,13 @@ Para la política dinámica de modelos, copiar `assets/worker.host-cli.example.j
 ```bash
 io-delegation setup --project . \
   --worker-config /ruta/privada/worker.host-cli.json \
+  --model-mode suggest \
   --model-preset balanced
 ```
 
 `adapter: "host-cli"` se resuelve según el host MCP que inició la operación. Codex reutiliza su CLI autenticada en un turno efímero read-only; Cursor reutiliza Cursor Agent en un workspace temporal con Ask mode, sandbox y permisos deny para shell, escritura, web y MCP. No se copian credenciales entre productos.
 
-`model_policy` permite reemplazar perfiles, `cost_index`, capacidad declarada, orden por preset, `min_profile`, `max_profile`, allow/block lists y límites de escalación. Los defaults usan Astra low como ceiling de Codex y Sol high como ceiling de Cursor. El Router nativo de Cursor sólo se usa si el operador configura explícitamente `strategy: "native-router-first"` y `native_router_model`.
+`model_policy` permite elegir `manual|suggest|auto`, reemplazar perfiles, `cost_index`, capacidad declarada, orden por preset, `min_profile`, `max_profile`, allow/block lists, `max_escalations` y `max_escalation_cost_ratio`. `suggest` es el default; sólo `auto` habilita selección dinámica. Los defaults usan Astra low como ceiling de Codex y Sol high como ceiling de Cursor. El Router nativo de Cursor sólo se usa si el operador configura explícitamente `strategy: "native-router-first"` y `native_router_model`.
 
 Opcionalmente `codex_executable` y `cursor_executable` fijan launchers revisados. Ver [ORCHESTRATION.md](ORCHESTRATION.md).
 

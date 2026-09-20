@@ -91,16 +91,18 @@ Para dejar un worker aprobado disponible, usar una configuración guardada fuera
 io-delegation setup --project . --worker-config /ruta/privada/worker.json
 ```
 
-Con un worker aprobado, setup usa `--orchestration auto` y el preset `balanced` por defecto. Esto **no** significa enviar todo al worker: sólo candidatos factuales/bulk llegan al scorer Jev; la política local elige el perfil suficiente con mejor objetivo costo/capacidad debajo del ceiling configurado. Evidencia válida pero incompleta puede subir un número acotado de perfiles; errores de transporte/configuración/presupuesto vuelven al principal. Si falta `TYPESAFE_API_KEY`, el scorer falla cerrado al principal y el worker no se despacha.
+Con un worker aprobado, setup prepara el scorer de compute y usa `suggest / balanced` por defecto. Esto **no** significa enviar todo al worker ni cambiar automáticamente el modelo: sólo candidatos factuales/bulk llegan al scorer Jev y, en `suggest`, la política local devuelve una recomendación. `manual` conserva un modelo configurado explícitamente; sólo `auto` permite seleccionar perfiles dinámicamente. En `auto`, el selector usa el primer perfil aprobado que cubre la demanda, Astra tiene un guard fuerte y los reintentos están acotados por cantidad y salto de costo. Errores de transporte/configuración/presupuesto vuelven al principal. Si falta `TYPESAFE_API_KEY`, el scorer falla cerrado al principal y el worker no se despacha.
 
 Control explícito y persistente:
 
 ```bash
 io-delegation setup --project . --orchestration off
 io-delegation setup --project . --orchestration on
-io-delegation setup --project . --model-preset cost
-io-delegation setup --project . --model-preset balanced
-io-delegation setup --project . --model-preset quality
+io-delegation setup --project . --model-mode manual
+io-delegation setup --project . --model-mode suggest --model-preset balanced
+io-delegation setup --project . --model-mode auto --model-preset cost
+io-delegation setup --project . --model-mode auto --model-preset balanced
+io-delegation setup --project . --model-mode auto --model-preset quality
 ```
 
 Para usar una sola configuración desde Codex y Cursor, copiar `skills/io-delegation/assets/worker.host-cli.example.json` fuera del repo, revisarla y aprobarla. `status` y `doctor` muestran el ladder/ceiling efectivo por host. El usuario puede reemplazar perfiles y orden dentro de `model_policy`. El path histórico de auto-dispatch incondicional sigue separado y exige `"context_auto_dispatch": true`; `compute_profiles.cheap` se conserva sólo por compatibilidad. Ver [ORCHESTRATION.md](../skills/io-delegation/references/ORCHESTRATION.md).

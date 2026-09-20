@@ -12,7 +12,7 @@ Use the advertised `io_context` tools instead of loading broad source corpora in
 
 - `search`: locate files or literal evidence locally. No model call.
 - `extract`: return exact HTML/JSON fields or bounded lines/spans locally. No model call.
-- `query`: use explicit selected fragments when the best context route is semantic. It may return bounded evidence, recommend principal reasoning, or—when operator setup enabled model orchestration—dispatch an approved Codex/Cursor worker profile selected by local policy. Worker results are accepted only after literal-evidence validation with no unknowns; valid-but-incomplete results may escalate within the configured ceiling.
+- `query`: use explicit selected fragments when the best context route is semantic. It may return bounded evidence, recommend principal reasoning, or use the configured model-control mode. `manual` preserves an explicit worker model; `suggest` (default) recommends a profile without dynamically switching; only explicit `auto` may dispatch a locally selected approved Codex/Cursor profile. Worker results are accepted only after literal-evidence validation with no unknowns; auto-mode retries remain bounded by ceiling, count and cost jump.
 
 Prefer `search`/`extract` when they fully answer the request. Use `query` when several selected fragments need interpretation or when semantic delegation may save context. Do not call a worker directly merely because one exists; `query` applies the configured routing/compute policy.
 

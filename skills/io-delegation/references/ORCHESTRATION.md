@@ -5,7 +5,8 @@ user-editable model policy. Jev never receives a list of approved model IDs and 
 chooses a provider directly.
 
 The optimization target is **total cost per validated task**, not principal-context
-reduction and not the number of worker calls.
+reduction and not the number of worker calls. Model control is user-first: dynamic
+switching is disabled unless the project explicitly selects `auto`.
 
 ## Execution model
 
@@ -18,20 +19,18 @@ bulk factual candidate
 Jev metadata-only scores
         |
         v
-local host-aware model policy
-        |
-        +--> minimum efficient approved profile
-        |        |
-        |        v
-        |   evidence validator
-        |      |       |
-        |     pass   valid-but-incomplete
-        |      |       |
-        |     done   next approved profile
-        |              |
-        |            bounded by max_escalations
-        |
-        +--> no profile under ceiling can satisfy demand -> principal
+model control mode
+   |
+   +-- manual  -> keep the user's explicitly configured model
+   +-- suggest -> return a recommendation, do not switch models
+   +-- auto    -> choose the minimum sufficient approved profile
+                         |
+                         v
+                    evidence validator
+                       |       |
+                      pass   valid-but-incomplete
+                       |       |
+                      done   bounded next-profile retry
 ```
 
 Transport/configuration failures, missing credentials, timeouts and unknown usage do
@@ -51,19 +50,39 @@ It returns probabilities for:
 Local code converts those signals into a normalized demand. Sensitive operations are
 hard-routed to the principal before model selection.
 
-## Default presets
+## Control modes and presets
 
-`setup --model-preset` accepts:
+`setup --model-mode` accepts:
 
-- `cost`: lower demand threshold and strongest cost weighting.
-- `balanced`: default; combines normalized cost/capability and latency evidence.
-- `quality`: raises task demand and weights capability more heavily.
+- `manual`: never change the model selected by the user. For `host-cli`, where no
+  fixed model exists, the query falls back to the principal until the user configures
+  an explicit `codex-cli` / `cursor-cli` model.
+- `suggest`: **default**. Jev computes a recommendation and exposes it in the result,
+  but `host-cli` does not dispatch a dynamically selected model.
+- `auto`: explicit opt-in. I/O Delegation may select and switch approved profiles.
 
-The selector considers only profiles at or below the user's effective ceiling. Among
-profiles whose declared capability covers task demand it minimizes a host-local
-objective derived from `cost_index / capability`, optional benchmark steps and the
-selected preset. A task may jump directly to a stronger model; it does not burn cheap
-attempts first when the scorer already says they are insufficient.
+`setup --model-preset` still accepts `cost`, `balanced`, and `quality`. Presets
+change demand bias and escalation tolerance, not authorization.
+
+Model demand is derived from cheap-model sufficiency, reasoning requirement and risk.
+`uncertainty_high` is intentionally **not** a model-strength signal: Jev sees task
+metadata rather than source bodies, so missing evidence is not fixed by buying a
+stronger model. `parallelism_useful` likewise does not make a model stronger.
+
+The selector is monotonic and transparent: it takes the first approved profile in the
+effective order whose declared capability covers demand. It no longer optimizes
+`cost/capability`, which could reward expensive models twice.
+
+Additional calibrated guards:
+
+- balanced Codex starts at `luna-high`; `luna-medium` remains available in the
+  `cost` preset and custom policies;
+- Astra low requires demand >= 0.90, reasoning >= 0.85, plus either high risk or very
+  low cheap-model sufficiency;
+- balanced retries cannot jump to a profile more than 10x the current normalized cost; this deliberately allows the observed Luna-high -> Terra-medium recovery while still bounding one-step retries;
+- default model-profile escalation count is one;
+- very high missing-context uncertainty plus low cheap-model sufficiency falls back to
+  the principal instead of escalating model strength.
 
 ## Codex defaults
 
@@ -73,8 +92,8 @@ selection weights, not a billing promise.
 
 | Profile | Model | Effort | Default role |
 | --- | --- | --- | --- |
-| `luna-medium` | GPT-5.6 Luna | medium | cheap bounded factual work |
-| `luna-high` | GPT-5.6 Luna | high | cheap but reasoning-heavier factual work |
+| `luna-medium` | GPT-5.6 Luna | medium | cost preset / cheapest bounded factual work |
+| `luna-high` | GPT-5.6 Luna | high | balanced default for bounded factual work |
 | `terra-medium` | GPT-5.6 Terra | medium | everyday multi-file synthesis |
 | `sol-medium` | GPT-5.6 Sol | medium | difficult bounded synthesis |
 | `astra-low` | GPT-6 Astra | **low** | hardest worker task / default hard ceiling |
@@ -155,9 +174,14 @@ Router transport failure.
 The simplest control is project-scoped:
 
 ```bash
-io-delegation setup --project . --model-preset cost
-io-delegation setup --project . --model-preset balanced
-io-delegation setup --project . --model-preset quality
+# Default: recommendation only, no dynamic model switching
+io-delegation setup --project . --model-mode suggest --model-preset balanced
+
+# Keep the user's explicitly configured Codex/Cursor model
+io-delegation setup --project . --model-mode manual
+
+# Explicitly opt into dynamic model selection
+io-delegation setup --project . --model-mode auto --model-preset balanced
 ```
 
 For advanced control copy `assets/worker.host-cli.example.json` outside the project,
@@ -171,6 +195,7 @@ Supported host-policy controls include:
 - `allowed_profiles` / `blocked_profiles`.
 - `allow_escalation`.
 - `max_escalations`.
+- `max_escalation_cost_ratio`: blocks disproportionate retry jumps.
 - Cursor-only `strategy: native-router-first` + `native_router_model`.
 
 Example lower Codex ceiling:
@@ -180,6 +205,7 @@ Example lower Codex ceiling:
   "approved": true,
   "adapter": "host-cli",
   "model_policy": {
+    "mode": "auto",
     "preset": "balanced",
     "hosts": {
       "codex": {
@@ -259,15 +285,18 @@ Every worker response still passes the existing local evidence validator:
 - original source files must remain unchanged;
 - `unknowns` must be empty for acceptance.
 
-A valid response that contains evidence but still reports unknowns may escalate to the
-next approved profile. The escalation count is bounded. Transport errors and budget
-errors go directly to principal fallback.
+A valid response that contains evidence but still reports unknowns may retry the next
+approved profile only when both the escalation count and cost-ratio guard allow it.
+For balanced Codex, Luna high -> Terra medium is allowed as the single default retry:
+the live calibration sample showed that exact retry recover a hard factual case.
+Larger jumps remain bounded by the preset-specific ratio, and
+transport/configuration/budget failures never walk the ladder.
 
 ## Accounting
 
 Operation telemetry records:
 
-- host and preset;
+- host, control mode and preset;
 - normalized task demand;
 - initial/final model profile;
 - model/effort/adapter;

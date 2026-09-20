@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sys
 import unittest
 
@@ -20,7 +21,7 @@ class ModelPolicyTests(unittest.TestCase):
     def test_default_codex_ceiling_is_astra_low(self):
         row=policy.resolve({'adapter':'host-cli'},'codex')
         self.assertEqual(row['max_profile'],'astra-low')
-        self.assertEqual(row['order'][-1],'astra-low')
+        self.assertEqual(row['order'],['luna-high','terra-medium','sol-medium','astra-low'])
         astra=row['table']['astra-low']
         self.assertEqual(astra['model'],'gpt-6-astra')
         self.assertEqual(astra['effort'],'low')
@@ -40,10 +41,10 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual(row['profile']['id'],'luna-medium')
         self.assertEqual(row['model_tier'],'M1')
 
-    def test_balanced_low_demand_prefers_luna_high_quality_margin(self):
+    def test_balanced_low_demand_starts_at_luna_high(self):
         row=policy.choose({'adapter':'host-cli'},'codex',scores(),operation='factual')
         self.assertEqual(row['profile']['id'],'luna-high')
-        self.assertEqual(row['model_tier'],'M2')
+        self.assertEqual(row['model_tier'],'M1')
 
     def test_medium_demand_can_jump_directly_to_terra(self):
         row=policy.choose({'adapter':'host-cli'},'codex',
@@ -101,7 +102,7 @@ class ModelPolicyTests(unittest.TestCase):
             'blocked_profiles':['terra-medium'],
         }}}}
         row=policy.resolve(cfg,'codex')
-        self.assertEqual(row['order'],['luna-medium','luna-high','sol-medium'])
+        self.assertEqual(row['order'],['luna-high','sol-medium'])
         hard=policy.choose(cfg,'codex',
                            scores(cheap=.01,reasoning=.99,risk=.8,uncertainty=.9),
                            'factual')
@@ -175,11 +176,64 @@ class ModelPolicyTests(unittest.TestCase):
         derived,_=policy.apply_profile(cfg,'cursor',cursor)
         self.assertEqual(derived['executable'],'/approved/agent')
 
-    def test_next_profile_respects_effective_order(self):
-        cfg={'adapter':'host-cli'}
-        nxt=policy.next_profile(cfg,'cursor','luna-high')
-        self.assertEqual(nxt['profile']['id'],'sol-medium')
-        self.assertEqual(nxt['model_tier'],'M3')
+    def test_balanced_allows_one_empirically_useful_retry(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        codex=policy.next_profile(cfg,'codex','luna-high')
+        self.assertEqual(codex['profile']['id'],'terra-medium')
+        cursor=policy.next_profile(cfg,'cursor','luna-high')
+        self.assertEqual(cursor['profile']['id'],'sol-medium')
+
+    def test_cost_preset_blocks_large_price_jump(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto','preset':'cost'}}
+        self.assertIsNone(policy.next_profile(cfg,'codex','luna-high'))
+
+    def test_default_mode_is_suggest_and_can_be_overridden(self):
+        self.assertEqual(policy.resolve({'adapter':'host-cli'},'codex')['mode'],'suggest')
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        self.assertEqual(policy.resolve(cfg,'codex')['mode'],'auto')
+        self.assertEqual(policy.resolve(cfg,'codex',mode_override='manual')['mode'],'manual')
+
+    def test_uncertainty_and_parallelism_do_not_raise_model_strength(self):
+        low=policy.task_demand(scores(cheap=.72,reasoning=.12,risk=.10,
+                                      uncertainty=.05,parallel=.05),'balanced')
+        noisy=policy.task_demand(scores(cheap=.72,reasoning=.12,risk=.10,
+                                        uncertainty=.99,parallel=.99),'balanced')
+        self.assertEqual(low,noisy)
+
+    def test_astra_requires_multiple_strong_signals(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        # Cheap sufficiency alone can create high demand, but without high reasoning
+        # Astra is rejected instead of becoming an expensive default.
+        row=policy.choose(cfg,'codex',
+                          scores(cheap=.01,reasoning=.30,risk=.20,uncertainty=.20),
+                          'factual')
+        self.assertEqual(row['decision'],'principal')
+        self.assertEqual(row['reason'],'astra_guard_rejected')
+
+    def test_context_gap_is_not_solved_by_buying_a_stronger_model(self):
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto'}}
+        row=policy.choose(cfg,'codex',
+                          scores(cheap=.20,reasoning=.20,risk=.10,uncertainty=.98),
+                          'factual')
+        self.assertEqual(row['decision'],'principal')
+        self.assertEqual(row['reason'],'context_gap_not_model_problem')
+
+
+    def test_sanitized_live_calibration_fixture_stays_on_luna_then_bounded_retry(self):
+        fixture=Path(__file__).resolve().parents[1]/'benchmarks/v1-validation/evidence/model-policy-live-calibration-20260920.json'
+        data=json.loads(fixture.read_text(encoding='utf-8'))
+        cfg={'adapter':'host-cli','model_policy':{'mode':'auto','preset':'balanced'}}
+        for case in data['orchestration_cases']:
+            row=policy.choose(cfg,'codex',case['scores'],'factual')
+            self.assertEqual(row['decision'],'worker',case['id'])
+            self.assertEqual(row['profile']['id'],'luna-high',case['id'])
+            self.assertNotEqual(row['profile']['id'],'astra-low',case['id'])
+        nxt=policy.next_profile(
+            cfg,'codex','luna-high',
+            scores=data['orchestration_cases'][-1]['scores'])
+        self.assertIsNotNone(nxt)
+        self.assertEqual(nxt['profile']['id'],'terra-medium')
+        self.assertEqual(policy.resolve(cfg,'codex')['max_escalations'],1)
 
 
 if __name__=='__main__':
