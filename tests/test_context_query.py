@@ -305,6 +305,52 @@ class QueryTests(unittest.TestCase):
         self.assertNotEqual(seen[0]['model'],'gpt-6-astra')
         self.assertEqual(result['orchestration']['host'],'cursor')
 
+    def test_suggest_mode_returns_recommendation_without_dynamic_dispatch(self):
+        worker=self.host_worker(mode='suggest')
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:self.scorer()
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        with patch('io_delegate.invoke',side_effect=AssertionError('suggest must not dispatch host-cli')):
+            result=self.call(service)
+        self.assertEqual(result['route'],'principal')
+        self.assertEqual(result['reason'],'model_suggestion_only')
+        self.assertEqual(result['model_suggestion']['profile'],'luna-high')
+        self.assertEqual(result['orchestration']['mode'],'suggest')
+        self.assertEqual(result['model_calls'],0)
+
+    def test_manual_mode_requires_explicit_model_for_host_cli(self):
+        worker=self.host_worker(mode='manual')
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:self.scorer()
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        with patch('io_delegate.invoke',side_effect=AssertionError('manual host-cli must not dispatch')):
+            result=self.call(service)
+        self.assertEqual(result['route'],'principal')
+        self.assertEqual(result['reason'],'manual_mode_requires_explicit_model')
+        self.assertEqual(result['model_calls'],0)
+
+    def test_manual_mode_preserves_explicit_codex_model(self):
+        worker=self.base/'manual-codex.json'
+        worker.write_text(json.dumps(dict(
+            approved=True,adapter='codex-cli',model='my-approved-model',
+            reasoning_effort='low',timeout_seconds=5,
+            model_policy={'mode':'manual'})))
+        service=self.service(worker,self.orchestrator,host='codex')
+        service.query.router.run=lambda *a,**k:routed('bulk_read')
+        service.query.orchestrator.run=lambda *a,**k:self.scorer()
+        self.sel=[dict(path=x,select=dict(kind='lines',start=1,end=1)) for x in ('a.py','b.py','c.py')]
+        seen=[]
+        def reply(job,cfg,root,record):
+            seen.append((cfg['model'],cfg.get('reasoning_effort')))
+            return worker_reply(job,cfg,root,record)
+        with patch('io_delegate.invoke',side_effect=reply):
+            result=self.call(service)
+        self.assertEqual(seen,[('my-approved-model','low')])
+        self.assertEqual(result['route'],'bulk_read')
+        self.assertEqual(result['orchestration']['mode'],'manual')
+
     def test_real_loopback_router_call_uses_metadata_and_routes_principal(self):
         captured=[]
         class Handler(BaseHTTPRequestHandler):
