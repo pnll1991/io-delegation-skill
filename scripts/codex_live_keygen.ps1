@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Security
 
 $stateDir = Join-Path $env:USERPROFILE ".io-delegation"
 $keyPath = Join-Path $stateDir "codex-live-rsa.dpapi"
