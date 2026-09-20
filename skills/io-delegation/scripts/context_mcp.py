@@ -20,7 +20,7 @@ from worker_mcp import relative_name, PROTOCOLS, MAX_RPC_BYTES, reject_links
 import io_delegate as delegate
 
 SERVER = 'io_context'
-VERSION = '0.6.0'
+VERSION = '0.7.0'
 MAX_RESULT_BYTES = 24_000
 
 
@@ -55,7 +55,8 @@ def append_event(folder, row):
 
 class ContextService:
     def __init__(self, root, audit_root, prefixes=(), files=(), config=None, router_config=None,
-                 orchestrator_config=None, cache=True, host=None, model_preset=None):
+                 orchestrator_config=None, cache=True, host=None, model_preset=None,
+                 model_mode=None):
         self.scope = SourceScope(root, prefixes, files)
         self.audit = private_external(audit_root, self.scope.root)
         self.config = config
@@ -63,7 +64,8 @@ class ContextService:
         self.engine = SemanticEngine(self.scope, self.audit, config, cache=cache) if config is not None else None
         self.query = QueryEngine(self.scope, self.audit, config, router_config,
                                  orchestrator_config=orchestrator_config, cache=cache,
-                                 host=host, model_preset=model_preset)
+                                 host=host, model_preset=model_preset,
+                                 model_mode=model_mode)
 
     def tool_names(self):
         return ('search', 'extract', 'query')
