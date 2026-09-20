@@ -124,10 +124,12 @@ def _semantic_args(arguments, selections):
 
 class QueryEngine:
     def __init__(self, scope, audit, worker_config=None, router_config=None,
-                 orchestrator_config=None, cache=True, host=None, model_preset=None):
+                 orchestrator_config=None, cache=True, host=None, model_preset=None,
+                 model_mode=None):
         self.scope = scope
         self.host = host
         self.model_preset = model_preset
+        self.model_mode = model_mode
         self.semantic = (SemanticEngine(scope, audit, worker_config, cache=cache)
                          if worker_config is not None else None)
         self.worker_auto_dispatch = bool(
@@ -173,7 +175,7 @@ class QueryEngine:
         try:
             plan = model_policy.choose(
                 self.semantic.cfg, self.host, compute_result['scores'], operation,
-                preset_override=self.model_preset)
+                preset_override=self.model_preset, mode_override=self.model_mode)
         except model_policy.ModelPolicyError:
             bundle, result = self._principal_bundle(
                 sources, selections, direct_limit, 'model_policy_error')
@@ -236,7 +238,8 @@ class QueryEngine:
                 break
             next_row = model_policy.next_profile(
                 self.semantic.cfg, self.host, current['id'],
-                preset_override=self.model_preset)
+                preset_override=self.model_preset, mode_override=self.model_mode,
+                scores=compute_result['scores'])
             if not next_row:
                 break
             current = dict(next_row['profile'])
@@ -257,6 +260,50 @@ class QueryEngine:
         result['worker_attempts'] = attempts
         return result, plan, attempts
 
+    def _run_fixed_worker(self, arguments, selections, sources, direct_limit, metrics):
+        """Run a user-selected static worker model; never switch model identity."""
+        execution = {
+            'tier': 'T1',
+            'max_output_tokens': self.orchestrator.cfg['compute_policy']['max_cheap_output_tokens'],
+        }
+        worker_result, semantic_metrics = self.semantic.run(
+            _semantic_args(arguments, selections), execution=execution)
+        self._merge_semantic_metrics(metrics, semantic_metrics)
+        metrics['compute_tier'] = 'T1'
+        if compute.accepted_worker_result(worker_result):
+            worker_result['route'] = 'bulk_read'
+            worker_result['recommended_route'] = 'bulk_read'
+            worker_result['model_calls'] = metrics['model_calls']
+            return worker_result
+        bundle, result = self._principal_bundle(
+            sources, selections, direct_limit,
+            'fixed_worker_escalation', recommended='principal')
+        metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                       compute_tier='T2', compute_decision='principal_after_fixed_worker',
+                       escalated=True)
+        result['model_calls'] = metrics['model_calls']
+        result['worker_attempt'] = {
+            'status': worker_result.get('status', 'error'),
+            'accepted': False,
+        }
+        return result
+
+    @staticmethod
+    def _suggestion(plan):
+        if not plan:
+            return None
+        profile = plan.get('profile') or {}
+        return {
+            'decision': plan.get('decision'),
+            'reason': plan.get('reason'),
+            'preset': plan.get('preset'),
+            'demand': plan.get('demand'),
+            'profile': profile.get('id'),
+            'model': profile.get('model'),
+            'effort': profile.get('effort'),
+            'max_profile': plan.get('max_profile'),
+        }
+
     def run(self, arguments):
         worker_limit = self.semantic.limits['max_selected_bytes'] if self.semantic else MAX_SELECTED_BYTES
         direct_limit = min(12_000, worker_limit)
@@ -272,6 +319,7 @@ class QueryEngine:
             'orchestrator_input_tokens': None, 'orchestrator_output_tokens': None,
             'orchestrator_elapsed_ms': None, 'escalated': False,
             'model_tier': None, 'model_policy_preset': self.model_preset,
+            'model_policy_mode': self.model_mode,
             'model_demand': None, 'model_attempts': 0, 'model_escalations': 0,
             'initial_model_profile': None, 'final_model_profile': None,
             'host': self.host, 'cache': 'disabled'
@@ -327,37 +375,88 @@ class QueryEngine:
                     or adapter == 'host-cli'
                 )
             )
+            policy_mode = None
             if use_model_policy:
+                try:
+                    resolved_policy = model_policy.resolve(
+                        self.semantic.cfg, self.host,
+                        preset_override=self.model_preset,
+                        mode_override=self.model_mode)
+                    policy_mode = resolved_policy['mode']
+                    metrics['model_policy_mode'] = policy_mode
+                except model_policy.ModelPolicyError:
+                    bundle, result = self._principal_bundle(
+                        sources, selections, direct_limit, 'model_policy_error')
+                    metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                                   compute_tier='T2', compute_decision='policy_error')
+                    use_model_policy = False
+                    policy_mode = 'error'
+
+            if use_model_policy and policy_mode == 'auto':
                 result, plan, attempts = self._run_model_policy(
                     arguments, selections, sources, direct_limit,
                     question, paths, operation, compute_result, metrics)
-            elif compute_result and compute_result.get('decision') == 'cheap_worker':
-                # Compatibility path for command/chat configs created before model_policy.
-                execution = {
-                    'tier': 'T1',
-                    'max_output_tokens': self.orchestrator.cfg['compute_policy']['max_cheap_output_tokens'],
-                }
-                worker_result, semantic_metrics = self.semantic.run(
-                    _semantic_args(arguments, selections), execution=execution)
-                self._merge_semantic_metrics(metrics, semantic_metrics)
-                metrics['compute_tier'] = 'T1'
-                if compute.accepted_worker_result(worker_result):
-                    result = worker_result
-                    result['route'] = 'bulk_read'
-                    result['recommended_route'] = 'bulk_read'
+
+            elif use_model_policy and policy_mode == 'suggest':
+                try:
+                    plan = model_policy.choose(
+                        self.semantic.cfg, self.host, compute_result['scores'], operation,
+                        preset_override=self.model_preset, mode_override=self.model_mode)
+                    metrics.update(
+                        model_policy_preset=plan.get('preset'),
+                        model_policy_mode='suggest',
+                        model_demand=round(float(plan.get('demand', 0)), 4),
+                        model_tier=plan.get('model_tier'),
+                        compute_decision='suggestion',
+                    )
+                except model_policy.ModelPolicyError:
+                    plan = None
+                suggestion = self._suggestion(plan)
+                if adapter == 'host-cli':
+                    bundle, result = self._principal_bundle(
+                        sources, selections, direct_limit,
+                        'model_suggestion_only', recommended='principal')
+                    metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                                   compute_tier='T2')
+                elif compute_result.get('decision') == 'cheap_worker':
+                    result = self._run_fixed_worker(
+                        arguments, selections, sources, direct_limit, metrics)
                 else:
                     bundle, result = self._principal_bundle(
                         sources, selections, direct_limit,
-                        'cheap_worker_escalation', recommended='principal')
+                        compute_result.get('reason', 'compute_gate_rejected'),
+                        recommended='principal')
                     metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
-                                   compute_tier='T2', compute_decision='escalated',
-                                   escalated=True)
-                    result['model_calls'] = metrics['model_calls']
-                    result['worker_attempt'] = {
-                        'status': worker_result.get('status', 'error'),
-                        'accepted': False,
-                    }
-            else:
+                                   compute_tier='T2')
+                if suggestion:
+                    result['model_suggestion'] = suggestion
+
+            elif use_model_policy and policy_mode == 'manual':
+                metrics['model_policy_mode'] = 'manual'
+                if adapter == 'host-cli':
+                    bundle, result = self._principal_bundle(
+                        sources, selections, direct_limit,
+                        'manual_mode_requires_explicit_model', recommended='principal')
+                    metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                                   compute_tier='T2', compute_decision='manual')
+                elif compute_result.get('decision') == 'cheap_worker':
+                    metrics['compute_decision'] = 'manual_fixed_model'
+                    result = self._run_fixed_worker(
+                        arguments, selections, sources, direct_limit, metrics)
+                else:
+                    bundle, result = self._principal_bundle(
+                        sources, selections, direct_limit,
+                        compute_result.get('reason', 'compute_gate_rejected'),
+                        recommended='principal')
+                    metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
+                                   compute_tier='T2', compute_decision='manual')
+
+            elif policy_mode != 'error' and compute_result and compute_result.get('decision') == 'cheap_worker':
+                # Compatibility path for command/chat configs created before model_policy.
+                result = self._run_fixed_worker(
+                    arguments, selections, sources, direct_limit, metrics)
+
+            elif policy_mode != 'error':
                 reason = ('orchestrator_error'
                           if metrics['compute_decision'] == 'error'
                           else 'compute_gate_rejected')
@@ -423,6 +522,7 @@ class QueryEngine:
             if plan:
                 orchestration.update({
                     'reason': plan.get('reason'),
+                    'mode': plan.get('mode'),
                     'preset': plan.get('preset'),
                     'demand': plan.get('demand'),
                     'model_tier': metrics.get('model_tier'),
