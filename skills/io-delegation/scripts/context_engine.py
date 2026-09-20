@@ -130,7 +130,7 @@ class SemanticEngine:
                        usage_complete=usage_complete(normalize_usage(raw_metrics.get('usage'))))
             result = validate_answer(output, bundle)
             self.scope.unchanged(sources)
-            accepted = result['status'] == 'ok' and bool(result['findings'])
+            accepted = compute.accepted_worker_result(result)
             metrics['reported_task_tokens'] = prior['tokens']+usage['input_tokens']+usage['output_tokens'] if usage_complete(usage) else None
             metrics['token_budget_crossed'] = metrics['reported_task_tokens'] is not None and metrics['reported_task_tokens'] > cap['max_task_tokens']
             record('worker_completed', status=result['status'], accepted=accepted, usage=usage)
