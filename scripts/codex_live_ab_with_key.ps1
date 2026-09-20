@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Security
 $prefix = "/codex-live-ab-key "
 if (-not $CommentBody.StartsWith($prefix)) {
     throw "Invalid encrypted live-test command."
