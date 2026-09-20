@@ -126,6 +126,8 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result['route'],'bulk_read')
         self.assertEqual(result['orchestration']['initial_tier'],'T1')
         self.assertFalse(result['orchestration']['escalated'])
+        self.assertEqual(result['orchestration']['model_escalations'],0)
+        self.assertEqual(len(result['orchestration']['attempts']),1)
         self.assertEqual(result['model_calls'],1)
         self.assertEqual(invoke.call_count,1)
 
