@@ -313,21 +313,22 @@ def choose(cfg: dict[str, Any], host: str | None, scores: dict[str, Any], operat
     selected = None
     selected_index = None
     if eligible:
-        # Optimize estimated validated-task efficiency, not raw model size. cost_index
-        # is normalized within each host and can be overridden by the operator.
+        # Capability is already a hard eligibility filter. Do not divide cost by
+        # capability again or stronger models get double credit and creep upward.
+        # Presets trade absolute normalized cost against quality margin and latency.
         def objective(row):
             index, profile = row
             capability = max(.01, float(profile["capability"]))
-            expected_cost = float(profile["cost_index"]) / capability
+            expected_cost = float(profile["cost_index"])
             quality_penalty = 1.0 - capability
             steps = float(profile.get("benchmark_steps", 0) or 0)
             latency_penalty = min(1.0, steps / 100.0) if steps else 0.0
             if policy["preset"] == "cost":
                 value = .92 * expected_cost + .08 * latency_penalty
             elif policy["preset"] == "quality":
-                value = .30 * expected_cost + .65 * quality_penalty + .05 * latency_penalty
+                value = .25 * expected_cost + .70 * quality_penalty + .05 * latency_penalty
             else:
-                value = .70 * expected_cost + .20 * quality_penalty + .10 * latency_penalty
+                value = .75 * expected_cost + .20 * quality_penalty + .05 * latency_penalty
             return (value, index)
         selected_index, selected = min(eligible, key=objective)
     if selected is None:
