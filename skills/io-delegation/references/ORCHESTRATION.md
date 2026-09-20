@@ -79,7 +79,7 @@ Additional calibrated guards:
   `cost` preset and custom policies;
 - Astra low requires demand >= 0.90, reasoning >= 0.85, plus either high risk or very
   low cheap-model sufficiency;
-- balanced retries cannot jump to a profile more than 4x the current normalized cost;
+- balanced retries cannot jump to a profile more than 10x the current normalized cost; this deliberately allows the observed Luna-high -> Terra-medium recovery while still bounding one-step retries;
 - default model-profile escalation count is one;
 - very high missing-context uncertainty plus low cheap-model sufficiency falls back to
   the principal instead of escalating model strength.
@@ -287,8 +287,10 @@ Every worker response still passes the existing local evidence validator:
 
 A valid response that contains evidence but still reports unknowns may retry the next
 approved profile only when both the escalation count and cost-ratio guard allow it.
-For balanced Codex, Luna high -> Terra medium is deliberately blocked by the default
-4x cost-jump limit. Transport/configuration/budget failures never walk the ladder.
+For balanced Codex, Luna high -> Terra medium is allowed as the single default retry:
+the live calibration sample showed that exact retry recover a hard factual case.
+Larger jumps remain bounded by the preset-specific ratio, and
+transport/configuration/budget failures never walk the ladder.
 
 ## Accounting
 
