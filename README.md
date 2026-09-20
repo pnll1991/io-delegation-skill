@@ -10,7 +10,7 @@
 
 **Claude Code · Codex · Cursor**
 
-I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing remains optional; when an approved CLI worker is configured, Jev can drive a host-aware, cost/capability model policy for Codex and Cursor; Jev-guided context compaction is automatic by default.
+I/O Delegation is a context gateway for coding agents. It exposes three primary MCP tools: local `search`, exact `extract`, and smart `query`. The main agent keeps debugging, architecture, security and final edits. TypeSafe Jev routing remains optional; with an approved CLI worker, Jev can score model requirements for Codex and Cursor. Model control is user-first: `suggest` is the default, `manual` preserves the user's model, and dynamic switching requires explicit `auto`. Jev-guided context compaction is automatic by default.
 
 ```text
 agent -> io_context -> search / extract / query
@@ -20,7 +20,7 @@ agent -> io_context -> search / extract / query
                       targeted  principal  worker
 ```
 
-The gateway still works without an external model. Jev routing and compute scoring receive task text plus aggregate metadata, not source bodies or file names. When a supported CLI worker is configured, local policy chooses the minimum efficient approved profile under the user's ceiling; validated incomplete results may escalate within a bounded ladder, while transport failures fall back to the principal. Automatic compaction uses Jev when its configured API key is available and has the broader conversation/tool-input data boundary documented below; if Jev is unavailable, native host compaction remains the fallback.
+The gateway still works without an external model. Jev routing and compute scoring receive task text plus aggregate metadata, not source bodies or file names. In the default `suggest` mode, local policy reports the minimum sufficient approved profile without changing the model. `manual` keeps an explicitly configured model. Only `auto` may select a profile dynamically, with hard ceilings, an Astra guard and bounded cost-aware escalation; transport failures fall back to the principal. Automatic compaction uses Jev when its configured API key is available and has the broader conversation/tool-input data boundary documented below; if Jev is unavailable, native host compaction remains the fallback.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ io-delegation.cmd setup --project "D:\\path\\to\\project"
 ./io-delegation setup --project "/path/to/project"
 ```
 
-Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps experimental Jev **routing off by default**, enables **host-aware compute orchestration automatically when an approved worker is configured**, uses the **balanced model preset by default**, enables **automatic context compaction by default**, keeps the read guard **off by default**, and runs `doctor`.
+Setup detects supported agents, installs the skill plus a stable project marker, installs a machine-local runtime under `~/.io-delegation/`, registers one global `io_context` MCP server per host, selects a safe project scope, keeps experimental Jev **routing off by default**, prepares **host-aware compute scoring when an approved worker is configured**, uses **suggest / balanced** as the model-control default, enables **automatic context compaction by default**, keeps the read guard **off by default**, and runs `doctor`.
 
 Preview with zero writes, then inspect the installation at any time:
 
@@ -55,7 +55,9 @@ To configure specific hosts or behavior:
 io-delegation setup --project . --agent codex
 io-delegation setup --project . --agent all --jev on
 io-delegation setup --project . --worker-config /private/worker.json
-io-delegation setup --project . --model-preset balanced
+io-delegation setup --project . --model-mode suggest --model-preset balanced
+io-delegation setup --project . --model-mode manual
+io-delegation setup --project . --model-mode auto --model-preset balanced  # explicit dynamic switching
 io-delegation setup --project . --orchestration off  # persistent project escape hatch
 io-delegation setup --project . --guard enforce
 io-delegation setup --project . --compaction off  # persistent escape hatch
@@ -63,7 +65,7 @@ io-delegation setup --project . --compaction off  # persistent escape hatch
 
 `TYPESAFE_API_KEY` being present does not auto-enable the experimental Jev route selector. Use `--jev on` (or an explicitly reviewed `--router-config`) when you want that router. Compute orchestration is separate: with an approved `--worker-config`, setup defaults to `--orchestration auto`; a missing TypeSafe key simply falls back to T2/principal without dispatching the worker.
 
-The older unconditional semantic-worker path still requires `"context_auto_dispatch": true`. Host-aware orchestration does not: Jev scores task requirements, local policy selects an approved profile, and only valid-but-incomplete evidence may climb the bounded model ladder.
+The older unconditional semantic-worker path still requires `"context_auto_dispatch": true`. Host-aware compute scoring is separate: `manual` never changes the configured model, `suggest` only returns a recommendation, and `auto` is the explicit opt-in that may select an approved profile. In `auto`, valid-but-incomplete evidence can retry only within the configured escalation-count and cost-ratio limits.
 
 Real provider configs and credentials stay outside the project. Setup stores only environment-variable names for credentials. Codex uses a managed user config, Cursor uses a global MCP that resolves the active project from the current workspace, and Claude Code uses user-scope MCP registration when its CLI is available. See [V1 product design](docs/PRODUCT_V1.md) and [gateway usage](docs/CONTEXT_GATEWAY_USAGE.md). The older `install.py`, direct runner and compatibility tools remain available for manual/legacy setups.
 
