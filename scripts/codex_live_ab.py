@@ -182,6 +182,7 @@ def main(argv=None):
             "adapter": "host-cli",
             "timeout_seconds": 120,
             "max_calls_per_workspace": 4,
+            "model_policy": {"mode": "auto", "preset": "balanced"},
             "context_limits": {
                 "max_selected_bytes": 24000,
                 "max_request_bytes": 40000,
