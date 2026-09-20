@@ -786,7 +786,10 @@ def setup_choices(root,args,existing):
     orchestration=orchestration_setup_mode(args,existing)
     model_preset=(args.model_preset if args.model_preset is not None else
                   existing.get('model_policy_preset','balanced') if existing else 'balanced')
-    return agents,prefixes,files,guard,activation,worker,router_mode,router_source,compaction,orchestration,model_preset
+    model_mode=(args.model_mode if args.model_mode is not None else
+                existing.get('model_policy_mode','suggest') if existing else 'suggest')
+    return (agents,prefixes,files,guard,activation,worker,router_mode,router_source,
+            compaction,orchestration,model_preset,model_mode)
 
 
 def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=False):
@@ -797,6 +800,7 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
           'compute_orchestration':bool(state.get('orchestrator_config')),
           'orchestration_preference':state.get('orchestration_preference','auto'),
           'model_policy_preset':state.get('model_policy_preset','balanced'),
+          'model_policy_mode':state.get('model_policy_mode','suggest'),
           'jev_compaction':state.get('compaction_mode')=='on',
           'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
           'worker_auto_dispatch':dispatch,
@@ -808,7 +812,9 @@ def print_setup_plan(root,state,actions,guard_rows,compaction_rows,json_mode=Fal
     print('Project: '+str(root)); print('Agents: '+', '.join(state['agents']))
     print(f"Scope: {len(state['allow_prefixes'])} folders + {len(state['allow_files'])} files")
     print('Jev: '+('on' if state.get('router_config') else 'off'))
-    print('Compute orchestration: '+('host-aware / '+state.get('model_policy_preset','balanced') if state.get('orchestrator_config') else 'off'))
+    print('Compute orchestration: '+(
+        state.get('model_policy_mode','suggest')+' / '+state.get('model_policy_preset','balanced')
+        if state.get('orchestrator_config') else 'off'))
     print('Compaction: '+('automatic (project-scoped: '+', '.join(state.get('compaction_hosts',[]))+')' if state.get('compaction_mode')=='on' else 'off'))
     if state.get('worker_config'):
         print('Worker: configured; experimental auto-dispatch '+('on' if dispatch else 'off'))
@@ -823,7 +829,8 @@ def command_setup(args):
     root=Path(args.project).expanduser().resolve(strict=True)
     if not root.is_dir(): raise ValueError('Project must be a directory')
     existing=optional_state(root)
-    agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,compaction,orchestration,model_preset=setup_choices(root,args,existing)
+    (agents,prefixes,files,guard,activation,worker_value,router_mode,router_source,
+     compaction,orchestration,model_preset,model_mode)=setup_choices(root,args,existing)
     old_compaction_hosts=configured_compaction_hosts(existing)
 
     # Phase 1: resolve and validate the complete plan without writing anything.
@@ -857,6 +864,7 @@ def command_setup(args):
            'orchestrator_generated':bool(orchestrator_generated),
            'orchestration_preference':orchestration,
            'model_policy_preset':model_preset,
+           'model_policy_mode':model_mode,
            'credential_env_names':credentials,
            'compaction_mode':compaction,
            'compaction_preference':compaction,
@@ -1140,7 +1148,8 @@ def status_data(root):
             model_policy_data=model_policy.summary(
                 raw if isinstance(raw,dict) else {},
                 state.get('agents',[]),
-                state.get('model_policy_preset','balanced'))
+                state.get('model_policy_preset','balanced'),
+                state.get('model_policy_mode','suggest'))
         except Exception as exc:
             model_policy_data={'error':str(exc)}
     return {'project':str(root),'stored_project':state.get('project'),'project_id':state['project_id'],
@@ -1150,6 +1159,7 @@ def status_data(root):
             'compute_orchestration':bool(state.get('orchestrator_config')),
             'orchestration_preference':state.get('orchestration_preference','auto'),
             'model_policy_preset':state.get('model_policy_preset','balanced'),
+            'model_policy_mode':state.get('model_policy_mode','suggest'),
             'model_policy':model_policy_data,
             'jev_compaction':state.get('compaction_mode')=='on',
             'compaction_preference':state.get('compaction_preference',state.get('compaction_mode','on')),
@@ -1178,7 +1188,9 @@ def command_status(args):
     print(f"Context scope {len(data['scope']['prefixes'])} folders + {len(data['scope']['files'])} files")
     print('Runtime       '+('ready' if data['runtime'] else 'missing'))
     print('Jev router    '+('enabled' if data['smart_routing'] else 'off'))
-    print('Compute       '+(('host-aware / '+data['model_policy_preset']) if data['compute_orchestration'] else 'off'))
+    print('Compute       '+(
+        (data['model_policy_mode']+' / '+data['model_policy_preset'])
+        if data['compute_orchestration'] else 'off'))
     for host,row in data.get('model_policy',{}).items():
         if isinstance(row,dict) and 'order' in row:
             print(f"Model policy  {host}: {' -> '.join(row['order'])} | max {row['max_profile']}")
@@ -1272,9 +1284,12 @@ def command_doctor(args):
             validate_worker(root,state['worker_config']); add('worker config','pass',state['worker_config'])
             sys.path.insert(0,str(SKILL_SOURCE/'scripts')); import model_policy
             raw=read_json(state['worker_config'],{})
-            policies=model_policy.summary(raw,state.get('agents',[]),state.get('model_policy_preset','balanced'))
+            policies=model_policy.summary(
+                raw,state.get('agents',[]),
+                state.get('model_policy_preset','balanced'),
+                state.get('model_policy_mode','suggest'))
             for host,row in policies.items():
-                detail=(f"{row.get('preset')} | {' -> '.join(row.get('order',[]))} | max {row.get('max_profile')}"
+                detail=(f"{row.get('mode')} / {row.get('preset')} | {' -> '.join(row.get('order',[]))} | max {row.get('max_profile')}"
                         if 'error' not in row else row['error'])
                 add('model policy '+host,'pass' if 'error' not in row else 'fail',detail)
             enabled=worker_auto_dispatch(state['worker_config'])
@@ -1318,6 +1333,8 @@ def build_parser():
                        help='Jev model orchestration; auto enables it when a worker is configured')
     setup.add_argument('--model-preset',choices=['cost','balanced','quality'],default=None,
                        help='host-aware model selection preset; default balanced')
+    setup.add_argument('--model-mode',choices=['manual','suggest','auto'],default=None,
+                       help='model control mode; default suggest (manual keeps user model, auto may switch)')
     setup.add_argument('--compaction',choices=['on','off'],default=None,
                        help='automatic by default; off is a persistent per-project override')
     setup.add_argument('--typesafe-env',default='TYPESAFE_API_KEY')
