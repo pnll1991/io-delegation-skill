@@ -12,7 +12,7 @@
         "allow_escalation": true,
         "max_escalations": 1,
         "blocked_profiles": [],
-        "max_escalation_cost_ratio": 4
+        "max_escalation_cost_ratio": 10
       },
       "cursor": {
         "strategy": "direct",
@@ -20,7 +20,7 @@
         "allow_escalation": true,
         "max_escalations": 1,
         "blocked_profiles": [],
-        "max_escalation_cost_ratio": 4
+        "max_escalation_cost_ratio": 10
       }
     },
     "mode": "suggest"
