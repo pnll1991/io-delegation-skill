@@ -52,6 +52,29 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual(row['profile']['id'],'astra-low')
         self.assertEqual(row['profile']['effort'],'low')
 
+    def test_live_like_metadata_uncertainty_does_not_buy_astra(self):
+        cfg={'adapter':'host-cli'}
+        easy=policy.choose(cfg,'codex',
+            scores(cheap=.68,reasoning=.08,risk=.18,uncertainty=.91,parallel=.26),
+            operation='factual')
+        medium=policy.choose(cfg,'codex',
+            scores(cheap=.76,reasoning=.08,risk=.21,uncertainty=.86,parallel=.45),
+            operation='factual')
+        hard=policy.choose(cfg,'codex',
+            scores(cheap=.67,reasoning=.11,risk=.27,uncertainty=.83,parallel=.48),
+            operation='factual')
+        self.assertEqual(easy['profile']['id'],'luna-high')
+        self.assertEqual(medium['profile']['id'],'luna-medium')
+        self.assertEqual(hard['profile']['id'],'luna-high')
+
+    def test_codex_cost_weights_track_published_price_order(self):
+        table=policy.resolve({'adapter':'host-cli'},'codex')['table']
+        costs=[table[x]['cost_index'] for x in
+               ('luna-medium','luna-high','terra-medium','sol-medium','astra-low')]
+        self.assertEqual(costs,sorted(costs))
+        self.assertLess(table['sol-medium']['cost_index'],table['astra-low']['cost_index']/2)
+        self.assertLess(table['luna-high']['cost_index'],table['terra-medium']['cost_index']/5)
+
     def test_sensitive_operations_never_delegate_even_when_cheap(self):
         for op in ('debugging','architecture','security','editing','generation'):
             row=policy.choose({'adapter':'host-cli'},'codex',scores(),operation=op)
