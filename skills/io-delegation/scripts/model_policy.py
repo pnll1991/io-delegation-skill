@@ -449,7 +449,8 @@ def apply_profile(cfg: dict[str, Any], host: str | None, profile: dict[str, Any]
 
 
 def summary(cfg: dict[str, Any], hosts: list[str] | tuple[str, ...],
-            preset_override: str | None = None) -> dict[str, Any]:
+            preset_override: str | None = None,
+            mode_override: str | None = None) -> dict[str, Any]:
     result = {}
     adapter = cfg.get("adapter")
     explicit = cfg.get("model_policy") is not None
@@ -463,7 +464,7 @@ def summary(cfg: dict[str, Any], hosts: list[str] | tuple[str, ...],
         if not explicit and adapter == "cursor-cli" and host != "cursor":
             continue
         try:
-            policy = resolve(cfg, host, preset_override)
+            policy = resolve(cfg, host, preset_override, mode_override)
             result[host] = {
                 "mode": policy["mode"], "preset": policy["preset"],
                 "strategy": policy["strategy"], "order": policy["order"],
