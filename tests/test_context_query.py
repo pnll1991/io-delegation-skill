@@ -49,11 +49,12 @@ class QueryTests(unittest.TestCase):
         self.orchestrator.write_text(self.router.read_text())
         self.sel=[dict(path='a.py',select=dict(kind='lines',start=1,end=1))]
 
-    def service(self, worker=None, orchestrator=None, host=None, model_preset=None):
+    def service(self, worker=None, orchestrator=None, host=None, model_preset=None,
+                model_mode=None):
         return ContextService(self.root,self.audit,files=['a.py','b.py','c.py'],
                               config=worker,router_config=self.router,
                               orchestrator_config=orchestrator,host=host,
-                              model_preset=model_preset)
+                              model_preset=model_preset,model_mode=model_mode)
 
     def call(self, service, **extra):
         args=dict(selections=self.sel,question='Review this evidence',operation='factual')
@@ -198,7 +199,7 @@ class QueryTests(unittest.TestCase):
     def host_worker(self, **policy):
         worker=self.base/'host-worker.json'
         row=dict(approved=True,adapter='host-cli',timeout_seconds=5)
-        if policy: row['model_policy']=policy
+        row['model_policy']={'mode':'auto', **policy}
         worker.write_text(json.dumps(row))
         return worker
 
