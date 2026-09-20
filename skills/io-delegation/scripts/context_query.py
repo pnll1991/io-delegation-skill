@@ -519,6 +519,8 @@ class QueryEngine:
                 'escalated': metrics['escalated'],
                 'host': self.host,
             }
+            if metrics.get('model_policy_mode'):
+                orchestration['mode'] = metrics['model_policy_mode']
             if plan:
                 orchestration.update({
                     'reason': plan.get('reason'),
