@@ -277,7 +277,7 @@ class QueryEngine:
             return worker_result
         bundle, result = self._principal_bundle(
             sources, selections, direct_limit,
-            'fixed_worker_escalation', recommended='principal')
+            'cheap_worker_escalation', recommended='principal')
         metrics.update(route='principal', selected_bytes=bundle['selected_bytes'],
                        compute_tier='T2', compute_decision='principal_after_fixed_worker',
                        escalated=True)
